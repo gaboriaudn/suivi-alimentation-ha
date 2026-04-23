@@ -1,0 +1,12 @@
+{
+  "domain": "suivi_alimentation",
+  "name": "Suivi Alimentation",
+  "version": "0.20",
+  "documentation": "https://github.com/gaboriaud/suivi-alimentation",
+  "issue_tracker": "https://github.com/gaboriaud/suivi-alimentation/issues",
+  "codeowners": ["@gaboriaud"],
+  "requirements": [],
+  "dependencies": ["http", "frontend", "panel_custom"],
+  "iot_class": "local_push",
+  "config_flow": true
+}

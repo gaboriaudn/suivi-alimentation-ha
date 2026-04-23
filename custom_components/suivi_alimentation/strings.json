@@ -1,0 +1,85 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Suivi Alimentation",
+        "description": "Cliquez sur Soumettre pour installer le panneau de suivi alimentaire.",
+        "data": {}
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Une seule instance est autorisée."
+    },
+    "error": {}
+  },
+  "options": {
+    "step": {
+      "menu": {
+        "title": "Gestion des profils",
+        "description": "Profils existants :\n{profils}",
+        "data": {
+          "action": "Que souhaitez-vous faire ?"
+        }
+      },
+      "choisir_profil": {
+        "title": "Modifier un profil — Sélection",
+        "description": "Choisissez le profil que vous souhaitez modifier.",
+        "data": {
+          "profil": "Profil à modifier"
+        }
+      },
+      "profil_infos": {
+        "title": "Informations personnelles",
+        "description": "Ces informations servent à calculer vos besoins nutritionnels.",
+        "data": {
+          "prenom":      "Prénom",
+          "age":         "Âge (années)",
+          "sexe":        "Sexe",
+          "poids":       "Poids actuel (kg)",
+          "taille":      "Taille (cm)",
+          "poids_cible": "Poids cible (kg)"
+        }
+      },
+      "profil_activite": {
+        "title": "Activité physique",
+        "description": "Indiquez votre niveau d'activité physique habituel.",
+        "data": {
+          "activite": "Niveau d'activité physique"
+        }
+      },
+      "profil_objectif": {
+        "title": "Objectif nutritionnel",
+        "description": "{resultats}",
+        "data": {
+          "objectif": "Choisissez votre objectif"
+        }
+      },
+      "profil_utilisateur_ha": {
+        "title": "Compte Home Assistant",
+        "description": "{info}",
+        "data": {
+          "utilisateur_ha": "Compte Home Assistant à lier"
+        }
+      },
+      "lier_profil": {
+        "title": "Lier un profil à un compte Home Assistant",
+        "description": "{info}",
+        "data": {
+          "profil":         "Profil à lier",
+          "utilisateur_ha": "Compte Home Assistant"
+        }
+      },
+      "supprimer_profil": {
+        "title": "Supprimer un profil",
+        "description": "{info}",
+        "data": {
+          "profil": "Profil à supprimer"
+        }
+      }
+    },
+    "error": {
+      "dernier_profil": "Impossible de supprimer le dernier profil.",
+      "no_profiles": "Aucun profil créé."
+    }
+  }
+}
