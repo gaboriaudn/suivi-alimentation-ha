@@ -68,9 +68,15 @@ jobs:
           gradle-version: '9.5.0'
 
       - name: Restore Android project
+        shell: bash
         run: |
+          set -euo pipefail
           mkdir -p android-app/project
-          tar -xzf android-app/source.tar.gz.b64 -C android-app/project
+          base64 --decode android-app/source-full.b64 > /tmp/suivi-alimentation-source.tar.gz
+          gzip -t /tmp/suivi-alimentation-source.tar.gz
+          tar -xzf /tmp/suivi-alimentation-source.tar.gz -C android-app/project
+          test -f android-app/project/settings.gradle.kts
+          test -f android-app/project/app/build.gradle.kts
 
       - name: Run unit tests
         working-directory: android-app/project
