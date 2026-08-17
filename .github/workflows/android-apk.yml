@@ -28,10 +28,39 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Android SDK 37
+      - name: Install Android 17 SDK
+        shell: bash
         run: |
+          set -euo pipefail
           yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platforms;android-37" "build-tools;36.0.0"
+          sdkmanager --list > /tmp/sdk-packages.txt
+
+          PLATFORM_PACKAGE=$(awk -F'|' '
+            /platforms;android-37|platforms;android-CinnamonBun/ {
+              gsub(/^[ \t]+|[ \t]+$/, "", $1); print $1; exit
+            }
+          ' /tmp/sdk-packages.txt)
+
+          BUILD_TOOLS_PACKAGE=$(awk -F'|' '
+            /build-tools;37\./ {
+              gsub(/^[ \t]+|[ \t]+$/, "", $1); print $1
+            }
+          ' /tmp/sdk-packages.txt | sort -V | tail -n 1)
+
+          if [ -z "$PLATFORM_PACKAGE" ]; then
+            echo "Android 17/Cinnamon Bun platform package was not found." >&2
+            grep -i -E 'Cinnamon|platforms;android-37' /tmp/sdk-packages.txt || true
+            exit 1
+          fi
+
+          echo "Installing platform: $PLATFORM_PACKAGE"
+          if [ -n "$BUILD_TOOLS_PACKAGE" ]; then
+            echo "Installing build tools: $BUILD_TOOLS_PACKAGE"
+            sdkmanager "$PLATFORM_PACKAGE" "$BUILD_TOOLS_PACKAGE"
+          else
+            echo "No Build-Tools 37.x package listed; installing the Android 17 platform only."
+            sdkmanager "$PLATFORM_PACKAGE"
+          fi
 
       - name: Set up Gradle 9.5
         uses: gradle/actions/setup-gradle@v6
