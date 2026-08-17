@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - "android-app/**"
+      - "android-app/project/**"
       - ".github/workflows/android-apk.yml"
   workflow_dispatch:
 
@@ -58,7 +58,6 @@ jobs:
             echo "Installing build tools: $BUILD_TOOLS_PACKAGE"
             sdkmanager "$PLATFORM_PACKAGE" "$BUILD_TOOLS_PACKAGE"
           else
-            echo "No Build-Tools 37.x package listed; installing the Android 17 platform only."
             sdkmanager "$PLATFORM_PACKAGE"
           fi
 
@@ -67,15 +66,16 @@ jobs:
         with:
           gradle-version: '9.5.0'
 
-      - name: Restore Android project
+      - name: Validate Android project
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p android-app/project
-          gzip -t android-app/source.tar.gz
-          tar -xzf android-app/source.tar.gz -C android-app/project
           test -f android-app/project/settings.gradle.kts
+          test -f android-app/project/build.gradle.kts
           test -f android-app/project/app/build.gradle.kts
+          test -f android-app/project/app/src/main/AndroidManifest.xml
+          test -f android-app/project/app/src/main/java/com/suivialimentation/android/MainActivity.kt
+          echo "Android source tree is present."
 
       - name: Run unit tests
         working-directory: android-app/project
