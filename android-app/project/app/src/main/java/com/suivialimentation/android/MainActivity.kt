@@ -6,7 +6,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
-import androidx.browser.customtabs.CustomTabsIntent
+import androidx.browser.auth.AuthTabIntent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -37,15 +37,28 @@ class MainActivity : ComponentActivity() {
         AppViewModel.Factory(container.authManager, container.repository)
     }
 
+    private val authTabLauncher = AuthTabIntent.registerActivityResultLauncher(this) { result ->
+        when (result.resultCode) {
+            AuthTabIntent.RESULT_OK -> {
+                result.resultUri?.let(::handleCallback) ?: appViewModel.cancelLogin()
+            }
+            AuthTabIntent.RESULT_CANCELED -> appViewModel.cancelLogin()
+            else -> appViewModel.cancelLogin()
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         lifecycleScope.launch {
             appViewModel.events.collect { event ->
                 when (event) {
-                    is AppEvent.OpenAuthorization -> CustomTabsIntent.Builder()
-                        .setShowTitle(true)
-                        .build()
-                        .launchUrl(this@MainActivity, event.url)
+                    is AppEvent.OpenAuthorization -> {
+                        val redirectScheme = Uri.parse(container.oauthConfig.redirectUri).scheme
+                            ?: error("Le schéma de retour OAuth est invalide.")
+                        AuthTabIntent.Builder()
+                            .build()
+                            .launch(authTabLauncher, event.url, redirectScheme)
+                    }
                 }
             }
         }
