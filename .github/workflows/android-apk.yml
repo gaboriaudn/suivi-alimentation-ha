@@ -1,0 +1,60 @@
+name: Build Suivi Alimentation Android APK
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "android-app/**"
+      - ".github/workflows/android-apk.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 37
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-37" "build-tools;36.0.0"
+
+      - name: Set up Gradle 9.5
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: '9.5.0'
+
+      - name: Restore Android project
+        run: |
+          mkdir -p android-app/project
+          base64 --decode android-app/source.tar.gz.b64 | tar -xzf - -C android-app/project
+
+      - name: Run unit tests
+        working-directory: android-app/project
+        run: gradle testDebugUnitTest -PHA_OAUTH_CLIENT_ID=https://gaboriaudn.github.io/suivi-alimentation-ha/
+
+      - name: Build debug APK
+        working-directory: android-app/project
+        run: gradle assembleDebug -PHA_OAUTH_CLIENT_ID=https://gaboriaudn.github.io/suivi-alimentation-ha/
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: suivi-alimentation-android-apk
+          path: android-app/project/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
