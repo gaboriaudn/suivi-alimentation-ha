@@ -70,7 +70,7 @@ jobs:
       - name: Restore Android project
         run: |
           mkdir -p android-app/project
-          base64 --decode android-app/source.tar.gz.b64 | tar -xzf - -C android-app/project
+          tar -xzf android-app/source.tar.gz.b64 -C android-app/project
 
       - name: Run unit tests
         working-directory: android-app/project
