@@ -48,6 +48,7 @@ class HomeAssistantWebSocketClient(
     private val subscriptions = ConcurrentHashMap<String, SubscriptionSpec>()
     private val activeSubscriptionIds = ConcurrentHashMap<Int, String>()
     private val lifecycleMutex = Mutex()
+    private val sendMutex = Mutex()
     private var connectionJob: Job? = null
     @Volatile private var active = false
     @Volatile private var socket: WebSocket? = null
@@ -207,20 +208,23 @@ class HomeAssistantWebSocketClient(
     }
 
     private suspend fun sendCommand(type: String, payload: JsonObject, subscriptionKey: String?): JsonElement {
-        val ws = socket ?: throw TransportDisconnectedException()
-        val id = nextId.getAndIncrement()
-        val deferred = CompletableDeferred<JsonElement>()
-        pending[id] = deferred
-        if (subscriptionKey != null) activeSubscriptionIds[id] = subscriptionKey
-        val command = buildJsonObject {
-            put("id", id)
-            put("type", type)
-            payload.forEach { (key, value) -> put(key, value) }
-        }
-        if (!ws.send(command.toString())) {
-            pending.remove(id)
-            activeSubscriptionIds.remove(id)
-            throw TransportDisconnectedException("Impossible d'envoyer la commande Home Assistant.")
+        val (id, deferred) = sendMutex.withLock {
+            val ws = socket ?: throw TransportDisconnectedException()
+            val commandId = nextId.getAndIncrement()
+            val commandResult = CompletableDeferred<JsonElement>()
+            pending[commandId] = commandResult
+            if (subscriptionKey != null) activeSubscriptionIds[commandId] = subscriptionKey
+            val command = buildJsonObject {
+                put("id", commandId)
+                put("type", type)
+                payload.forEach { (key, value) -> put(key, value) }
+            }
+            if (!ws.send(command.toString())) {
+                pending.remove(commandId)
+                activeSubscriptionIds.remove(commandId)
+                throw TransportDisconnectedException("Impossible d'envoyer la commande Home Assistant.")
+            }
+            commandId to commandResult
         }
         return try {
             withTimeout(COMMAND_TIMEOUT_MS) { deferred.await() }
