@@ -333,6 +333,91 @@ class SuiviAlimentationRepository:
         result["foodRefId"] = food_ref_id
         return result
 
+    async def async_duplicate_meal(
+        self,
+        *,
+        source_meal_id: str,
+        target_local_date: str,
+        operation_id: str,
+    ) -> dict[str, Any]:
+        """Copy a validated meal and its frozen snapshots into a new editable draft."""
+        replay = self.operation_event(operation_id)
+        if replay and replay.get("operation") == "duplicate":
+            current = self.snapshot()
+            meal = current["mealsById"].get(replay.get("entityId"))
+            if meal is not None:
+                result = self.idempotent_result()
+                result["meal"] = meal
+                result["items"] = [
+                    item for item in current["mealItemsById"].values()
+                    if item.get("mealId") == meal["id"]
+                ]
+                return result
+
+        candidate = self.snapshot()
+        source = candidate["mealsById"].get(source_meal_id)
+        if source is None or source.get("status") != "validated":
+            raise RepositoryValidationError("Validated source meal not found")
+        source_items = sorted(
+            (
+                item for item in candidate["mealItemsById"].values()
+                if item.get("mealId") == source_meal_id
+            ),
+            key=lambda item: int(item.get("position", 0)),
+        )
+        if not source_items:
+            raise RepositoryValidationError("Source meal is empty")
+
+        now = utc_now_iso()
+        meal_id = str(uuid.uuid4())
+        meal = {
+            **deepcopy(source),
+            "id": meal_id,
+            "status": "draft",
+            "consumptionLocalDate": target_local_date,
+            "consumedAtUtc": None,
+            "datePrecision": "date_only",
+            "totalsSnapshot": None,
+            "origin": "duplicated",
+            "supersedesMealId": None,
+            "supersededByMealId": None,
+            "createdAt": now,
+            "updatedAt": now,
+            "validatedAt": None,
+            "voidedAt": None,
+            "revision": 1,
+        }
+        candidate["mealsById"][meal_id] = meal
+        duplicated_items = []
+        for source_item in source_items:
+            item = {
+                **deepcopy(source_item),
+                "id": str(uuid.uuid4()),
+                "mealId": meal_id,
+                "createdFromProposalId": None,
+                "revision": 1,
+                "createdAt": now,
+                "updatedAt": now,
+            }
+            candidate["mealItemsById"][item["id"]] = item
+            duplicated_items.append(item)
+
+        result = await self._commit(
+            candidate,
+            operation_id=operation_id,
+            event={
+                "entityType": "meal",
+                "entityId": meal_id,
+                "operation": "duplicate",
+                "entityRevision": 1,
+                "profileId": source["profileId"],
+                "sourceMealId": source_meal_id,
+            },
+        )
+        result["meal"] = meal
+        result["items"] = duplicated_items
+        return result
+
     async def async_add_meal_item(
         self,
         *,
