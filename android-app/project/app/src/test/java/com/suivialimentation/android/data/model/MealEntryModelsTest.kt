@@ -2,6 +2,7 @@ package com.suivialimentation.android.data.model
 
 import com.suivialimentation.android.util.AppJson
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class MealEntryModelsTest {
@@ -37,5 +38,15 @@ class MealEntryModelsTest {
         assertEquals("36022", response.items.single().sourceExternalId)
         assertEquals(155.0, response.items.single().nutrientsPer100g.energyKcal ?: 0.0, 0.001)
         assertEquals("2025-11-03", response.sourceVersion)
+    }
+
+    @Test
+    fun `decodes serving definition with null values from Home Assistant`() {
+        val json = """{"unitLabel":null,"gramsEquivalent":null}"""
+
+        val serving = AppJson.decodeFromString(ServingDefinition.serializer(), json)
+
+        assertNull(serving.unitLabel)
+        assertNull(serving.gramsEquivalent)
     }
 }
