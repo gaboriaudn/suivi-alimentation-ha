@@ -2,7 +2,7 @@ name: Build Suivi Alimentation Android APK
 
 on:
   push:
-    branches: [main, android-meal-entry-j1]
+    branches: [main]
     paths:
       - "android-app/project/**"
       - ".github/workflows/android-apk.yml"
