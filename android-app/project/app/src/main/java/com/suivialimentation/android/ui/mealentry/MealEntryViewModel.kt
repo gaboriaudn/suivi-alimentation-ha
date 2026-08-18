@@ -154,7 +154,7 @@ class MealEntryViewModel(
     private fun userMessage(t: Throwable, fallback: String): String = when (t) {
         is HomeAssistantCommandException -> when {
             t.isConflict -> "Le repas a été modifié ailleurs. Revenez à Aujourd'hui puis reprenez le brouillon."
-            else -> t.message.ifBlank { fallback }
+            else -> t.message?.takeIf { it.isNotBlank() } ?: fallback
         }
         else -> t.message?.takeIf { it.isNotBlank() } ?: fallback
     }
