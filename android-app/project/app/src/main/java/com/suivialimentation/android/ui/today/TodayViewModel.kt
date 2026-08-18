@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.suivialimentation.android.data.ha.ConnectionState
 import com.suivialimentation.android.data.ha.TransportDisconnectedException
 import com.suivialimentation.android.data.repository.NutritionRepository
+import com.suivialimentation.android.data.repository.MealWithItems
 import com.suivialimentation.android.data.repository.TodayData
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -31,6 +32,8 @@ data class TodayUiState(
     val content: TodayData? = null,
     val connection: TodayConnection = TodayConnection.Disconnected,
     val error: String? = null,
+    val duplicatingMealId: String? = null,
+    val duplicatedDraft: MealWithItems? = null,
 )
 
 class TodayViewModel(private val repository: NutritionRepository) : ViewModel() {
@@ -57,6 +60,34 @@ class TodayViewModel(private val repository: NutritionRepository) : ViewModel() 
             repository.connect()
             refresh(showLoader = _state.value.content == null)
         }
+    }
+
+    fun duplicateMeal(source: MealWithItems) {
+        val content = _state.value.content ?: return
+        viewModelScope.launch {
+            _state.update { it.copy(duplicatingMealId = source.meal.id, error = null) }
+            try {
+                val duplicated = repository.duplicateMeal(source.meal.id, content.localDate)
+                _state.update {
+                    it.copy(
+                        duplicatingMealId = null,
+                        duplicatedDraft = MealWithItems(duplicated.meal, duplicated.items),
+                        error = null,
+                    )
+                }
+            } catch (t: Throwable) {
+                _state.update {
+                    it.copy(
+                        duplicatingMealId = null,
+                        error = t.message ?: "Impossible de dupliquer le repas.",
+                    )
+                }
+            }
+        }
+    }
+
+    fun consumeDuplicatedDraft() {
+        _state.update { it.copy(duplicatedDraft = null) }
     }
 
     private suspend fun refresh(showLoader: Boolean) = refreshMutex.withLock {
