@@ -1,20 +1,24 @@
 package com.suivialimentation.android.ui.today
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Button
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -34,6 +38,9 @@ import androidx.compose.ui.unit.dp
 import com.suivialimentation.android.data.model.NutrientSnapshot
 import com.suivialimentation.android.data.repository.MealWithItems
 import com.suivialimentation.android.data.repository.TodayData
+import com.suivialimentation.android.ui.components.AppSpacing
+import com.suivialimentation.android.ui.components.MinimumTouchTarget
+import com.suivialimentation.android.ui.components.SectionHeader
 import java.text.NumberFormat
 import java.time.LocalDate
 import java.time.ZoneId
@@ -100,8 +107,8 @@ private fun ConnectionBanner(connection: TodayConnection) {
         is TodayConnection.Error -> connection.message
     }
     if (message != null) {
-        Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-            Text(message, modifier = Modifier.padding(12.dp), style = MaterialTheme.typography.bodyMedium)
+        Card(modifier = Modifier.fillMaxWidth().padding(horizontal = AppSpacing.lg, vertical = AppSpacing.sm)) {
+            Text(message, modifier = Modifier.padding(AppSpacing.md), style = MaterialTheme.typography.bodyMedium)
         }
     }
 }
@@ -114,16 +121,16 @@ private fun LoadingBody() {
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         CircularProgressIndicator()
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(AppSpacing.md))
         Text("Chargement de la journée…")
     }
 }
 
 @Composable
 private fun ErrorBody(message: String, onRetry: () -> Unit) {
-    Column(modifier = Modifier.padding(24.dp)) {
+    Column(modifier = Modifier.padding(AppSpacing.xl)) {
         Text(message, style = MaterialTheme.typography.bodyLarge)
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(AppSpacing.md))
         Button(onClick = onRetry) { Text("Réessayer") }
     }
 }
@@ -149,7 +156,7 @@ private fun TodayContent(
         AlertDialog(
             onDismissRequest = { pendingDeletion = null },
             title = { Text("Supprimer ce repas ?") },
-            text = { Text("Il sera retiré des totaux et de l’historique visible, mais sa trace restera archivée dans Home Assistant.") },
+            text = { Text("Le repas sera retiré des totaux et de l’historique visible. Sa trace restera archivée dans Home Assistant.") },
             confirmButton = {
                 Button(onClick = {
                     pendingDeletion = null
@@ -159,67 +166,55 @@ private fun TodayContent(
             dismissButton = { TextButton(onClick = { pendingDeletion = null }) { Text("Annuler") } },
         )
     }
+
     val zone = runCatching { ZoneId.of(data.profile.defaultTimeZone) }.getOrDefault(ZoneId.systemDefault())
     val isToday = data.localDate == LocalDate.now(zone).toString()
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(AppSpacing.lg),
+        verticalArrangement = Arrangement.spacedBy(AppSpacing.md),
     ) {
         item {
-            Text(data.profile.displayName, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-            Text(formatDate(data.localDate), style = MaterialTheme.typography.bodyMedium)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = onPreviousDay) { Text("Jour précédent") }
-                if (!isToday) TextButton(onClick = onToday) { Text("Aujourd’hui") }
-                TextButton(onClick = onNextDay, enabled = !isToday) { Text("Jour suivant") }
-            }
+            Text(data.profile.displayName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            DateNavigator(
+                localDate = data.localDate,
+                isToday = isToday,
+                onPreviousDay = onPreviousDay,
+                onNextDay = onNextDay,
+                onToday = onToday,
+            )
         }
+
         if (error != null) {
             item {
                 Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(12.dp)) {
-                        Text(error)
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(AppSpacing.md),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(error, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
                         TextButton(onClick = onRetry) { Text("Actualiser") }
                     }
                 }
             }
         }
+
+        item { PrimaryNutritionSummary(data) }
+
         item {
-            Text("Bilan nutritionnel", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-        }
-        item {
-            NutrientRow(
-                left = NutrientCardData("Calories", data.totals.energyKcal, data.activeGoal?.targets?.energyKcal, "kcal"),
-                right = NutrientCardData("Protéines", data.totals.proteinG, data.activeGoal?.targets?.proteinG, "g"),
-            )
-        }
-        item {
-            NutrientRow(
-                left = NutrientCardData("Glucides", data.totals.carbsG, data.activeGoal?.targets?.carbsG, "g"),
-                right = NutrientCardData("Lipides", data.totals.fatG, data.activeGoal?.targets?.fatG, "g"),
-            )
-        }
-        item {
-            NutrientRow(
-                left = NutrientCardData("Fibres", data.totals.fiberG, data.activeGoal?.targets?.fiberG, "g"),
-                right = NutrientCardData("Sel", data.totals.saltG, data.activeGoal?.targets?.saltG, "g"),
-            )
-        }
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("Repas", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                Button(onClick = onAddMeal) { Text("Ajouter un repas") }
+            Button(onClick = onAddMeal, modifier = Modifier.fillMaxWidth().heightIn(min = MinimumTouchTarget)) {
+                Text("+ Ajouter un repas")
             }
         }
+
+        item { SectionHeader("Repas") }
+
         if (data.meals.isEmpty()) {
             item {
                 Card(modifier = Modifier.fillMaxWidth()) {
-                    Text("Aucun repas enregistré aujourd'hui.", modifier = Modifier.padding(16.dp))
+                    Text("Aucun repas enregistré pour cette journée.", modifier = Modifier.padding(AppSpacing.lg))
                 }
             }
         } else {
@@ -234,32 +229,80 @@ private fun TodayContent(
                 )
             }
         }
-        item { Text("Révision serveur ${data.storeRevision}", style = MaterialTheme.typography.labelSmall) }
+    }
+}
+
+@Composable
+private fun DateNavigator(
+    localDate: String,
+    isToday: Boolean,
+    onPreviousDay: () -> Unit,
+    onNextDay: () -> Unit,
+    onToday: () -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            TextButton(onClick = onPreviousDay, modifier = Modifier.heightIn(min = MinimumTouchTarget)) { Text("‹") }
+            Text(formatDate(localDate), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+            TextButton(onClick = onNextDay, enabled = !isToday, modifier = Modifier.heightIn(min = MinimumTouchTarget)) { Text("›") }
+        }
+        if (!isToday) {
+            TextButton(onClick = onToday, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Revenir à aujourd’hui") }
+        }
     }
 }
 
 private data class NutrientCardData(val title: String, val value: Double?, val target: Double?, val unit: String)
 
 @Composable
-private fun NutrientRow(left: NutrientCardData, right: NutrientCardData) {
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        GoalCard(left.title, left.value, left.target, left.unit, Modifier.weight(1f))
-        GoalCard(right.title, right.value, right.target, right.unit, Modifier.weight(1f))
+private fun PrimaryNutritionSummary(data: TodayData) {
+    Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AppSpacing.md)) {
+            GoalCard(
+                NutrientCardData("Calories", data.totals.energyKcal, data.activeGoal?.targets?.energyKcal, "kcal"),
+                Modifier.weight(1f),
+            )
+            GoalCard(
+                NutrientCardData("Protéines", data.totals.proteinG, data.activeGoal?.targets?.proteinG, "g"),
+                Modifier.weight(1f),
+            )
+        }
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Text(
+                text = listOf(
+                    "Glucides ${formatNumber(data.totals.carbsG)} g",
+                    "Lipides ${formatNumber(data.totals.fatG)} g",
+                    "Fibres ${formatNumber(data.totals.fiberG)} g",
+                    "Sel ${formatNumber(data.totals.saltG)} g",
+                ).joinToString(" · "),
+                modifier = Modifier.padding(horizontal = AppSpacing.md, vertical = AppSpacing.sm),
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
     }
 }
 
 @Composable
-private fun GoalCard(title: String, value: Double?, target: Double?, unit: String, modifier: Modifier = Modifier) {
+private fun GoalCard(data: NutrientCardData, modifier: Modifier = Modifier) {
     Card(modifier = modifier) {
-        Column(Modifier.padding(14.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(6.dp))
-            val mainValue = "${formatNumber(value)} $unit"
-            val targetValue = target?.let { " / ${formatNumber(it)} $unit" }.orEmpty()
-            Text(mainValue + targetValue, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-            if (value != null && target != null && target > 0.0) {
-                Spacer(Modifier.height(10.dp))
-                LinearProgressIndicator(progress = { (value / target).coerceIn(0.0, 1.0).toFloat() }, modifier = Modifier.fillMaxWidth())
+        Column(Modifier.padding(AppSpacing.md)) {
+            Text(data.title, style = MaterialTheme.typography.titleSmall)
+            val target = data.target?.let { " / ${formatNumber(it)} ${data.unit}" }.orEmpty()
+            Text(
+                "${formatNumber(data.value)} ${data.unit}$target",
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.SemiBold,
+            )
+            if (data.value != null && data.target != null && data.target > 0.0) {
+                Spacer(Modifier.height(AppSpacing.sm))
+                LinearProgressIndicator(
+                    progress = { (data.value / data.target).coerceIn(0.0, 1.0).toFloat() },
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         }
     }
@@ -274,66 +317,82 @@ private fun MealCard(
     onDeleteMeal: (MealWithItems) -> Unit,
     busy: Boolean,
 ) {
+    var menuExpanded by remember { mutableStateOf(false) }
     Card(modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(14.dp)) {
-            Text(
-                group.meal.label?.takeIf { it.isNotBlank() } ?: mealTypeLabel(group.meal.mealType),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-            )
-            if (group.meal.status == "draft") Text("Brouillon", style = MaterialTheme.typography.labelMedium)
-            group.meal.totalsSnapshot?.let { Text(snapshotSummary(it), style = MaterialTheme.typography.bodySmall) }
-            if (group.items.isNotEmpty()) Spacer(Modifier.height(8.dp))
-            group.items.forEachIndexed { index, item ->
-                if (index > 0) HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Text(item.labelSnapshot, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-                    Text(quantityLabel(item.quantityValue, item.quantityUnit), style = MaterialTheme.typography.bodySmall)
-                    item.nutritionSnapshot?.let {
-                        Spacer(Modifier.height(2.dp))
-                        Text(snapshotSummary(it), style = MaterialTheme.typography.bodySmall)
+        Column(Modifier.padding(AppSpacing.md)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        group.meal.label?.takeIf { it.isNotBlank() } ?: mealTypeLabel(group.meal.mealType),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    if (group.meal.status == "draft") Text("Brouillon", style = MaterialTheme.typography.labelMedium)
+                    group.meal.totalsSnapshot?.let { Text(primarySnapshotSummary(it), style = MaterialTheme.typography.bodySmall) }
+                }
+                if (group.meal.status == "validated") {
+                    Box {
+                        TextButton(
+                            onClick = { menuExpanded = true },
+                            enabled = !busy,
+                            modifier = Modifier.heightIn(min = MinimumTouchTarget),
+                        ) { Text("⋮") }
+                        DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Corriger / compléter") },
+                                onClick = { menuExpanded = false; onCorrectMeal(group) },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Dupliquer") },
+                                onClick = { menuExpanded = false; onDuplicateMeal(group) },
+                            )
+                            HorizontalDivider()
+                            DropdownMenuItem(
+                                text = { Text("Supprimer") },
+                                onClick = { menuExpanded = false; onDeleteMeal(group) },
+                            )
+                        }
                     }
                 }
             }
+
+            if (group.items.isNotEmpty()) Spacer(Modifier.height(AppSpacing.sm))
+            group.items.forEachIndexed { index, item ->
+                if (index > 0) HorizontalDivider(Modifier.padding(vertical = AppSpacing.sm))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
+                    Text(item.labelSnapshot, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+                    Text(quantityLabel(item.quantityValue, item.quantityUnit), style = MaterialTheme.typography.bodySmall)
+                }
+            }
+
             if (group.meal.status == "draft") {
-                Spacer(Modifier.height(8.dp))
-                TextButton(onClick = { onContinueDraft(group) }) { Text("Continuer le brouillon") }
-            } else if (group.meal.status == "validated") {
-                Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    TextButton(onClick = { onCorrectMeal(group) }, enabled = !busy) {
-                        Text("Corriger / compléter")
-                    }
-                    TextButton(onClick = { onDeleteMeal(group) }, enabled = !busy) {
-                        Text("Supprimer")
-                    }
-                }
-                TextButton(onClick = { onDuplicateMeal(group) }, enabled = !busy) {
-                    Text("Dupliquer ce repas")
-                }
+                Spacer(Modifier.height(AppSpacing.sm))
+                Button(
+                    onClick = { onContinueDraft(group) },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = MinimumTouchTarget),
+                ) { Text("Continuer le brouillon") }
             }
         }
     }
 }
 
-private fun snapshotSummary(snapshot: NutrientSnapshot): String = buildList {
+private fun primarySnapshotSummary(snapshot: NutrientSnapshot): String = buildList {
     snapshot.energyKcal?.let { add("${formatNumber(it)} kcal") }
     snapshot.proteinG?.let { add("${formatNumber(it)} g prot.") }
-    snapshot.carbsG?.let { add("${formatNumber(it)} g gluc.") }
-    snapshot.fatG?.let { add("${formatNumber(it)} g lip.") }
-    snapshot.fiberG?.let { add("${formatNumber(it)} g fibres") }
-    snapshot.saltG?.let { add("${formatNumber(it)} g sel") }
 }.joinToString(" · ").ifBlank { "Valeurs non renseignées" }
 
 private fun quantityLabel(value: Double?, unit: String?): String {
-    if (value == null && unit.isNullOrBlank()) return "Quantité non renseignée"
+    if (value == null && unit.isNullOrBlank()) return "—"
     return listOfNotNull(value?.let(::formatNumber), unit?.takeIf { it.isNotBlank() }).joinToString(" ")
 }
 
 private fun formatNumber(value: Double?): String {
     if (value == null) return "—"
-    val formatter = NumberFormat.getNumberInstance(Locale.FRANCE).apply { maximumFractionDigits = 1 }
-    return formatter.format(value)
+    return NumberFormat.getNumberInstance(Locale.FRANCE).apply { maximumFractionDigits = 1 }.format(value)
 }
 
 private fun mealTypeLabel(type: String): String = when (type.lowercase()) {
@@ -345,5 +404,5 @@ private fun mealTypeLabel(type: String): String = when (type.lowercase()) {
 }
 
 private fun formatDate(value: String): String = runCatching {
-    LocalDate.parse(value).format(DateTimeFormatter.ofLocalizedDate(FormatStyle.FULL).withLocale(Locale.FRANCE))
+    LocalDate.parse(value).format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM).withLocale(Locale.FRANCE))
 }.getOrDefault(value)
