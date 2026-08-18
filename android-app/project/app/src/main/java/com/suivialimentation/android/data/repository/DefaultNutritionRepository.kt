@@ -5,8 +5,13 @@ import com.suivialimentation.android.data.ha.HomeAssistantApi
 import com.suivialimentation.android.data.ha.HomeAssistantCommandException
 import com.suivialimentation.android.data.ha.HomeAssistantWebSocketClient
 import com.suivialimentation.android.data.ha.TransportDisconnectedException
+import com.suivialimentation.android.data.model.AddFoodToMealResponse
+import com.suivialimentation.android.data.model.CiqualFoodCandidate
+import com.suivialimentation.android.data.model.CreateMealResponse
 import com.suivialimentation.android.data.model.GoalVersion
+import com.suivialimentation.android.data.model.ImportFoodResponse
 import com.suivialimentation.android.data.model.NutrientSnapshot
+import com.suivialimentation.android.data.model.ValidateMealResponse
 import com.suivialimentation.android.util.AppJson
 import java.time.LocalDate
 import java.time.ZoneId
@@ -22,7 +27,6 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
@@ -91,6 +95,63 @@ class DefaultNutritionRepository(
     override suspend fun changes(profileId: String): Flow<Unit> =
         api.subscribeToV2Changes(profileId).map { Unit }
 
+    override suspend fun searchCiqual(profileId: String, query: String, limit: Int): List<CiqualFoodCandidate> =
+        api.searchCiqual(profileId, query.trim(), limit).items
+
+    override suspend fun importCiqualFood(profileId: String, ciqualCode: String): ImportFoodResponse {
+        val result = executeMutation(
+            commandType = "suivi_alimentation/v2/import_ciqual_food",
+            payload = buildJsonObject {
+                put("profile_id", profileId)
+                put("ciqual_code", ciqualCode)
+            },
+        )
+        return AppJson.decodeFromJsonElement(ImportFoodResponse.serializer(), result)
+    }
+
+    override suspend fun createMeal(profileId: String, mealType: String, localDate: String): CreateMealResponse {
+        val result = executeMutation(
+            commandType = "suivi_alimentation/v2/create_meal",
+            payload = buildJsonObject {
+                put("profile_id", profileId)
+                put("meal_type", mealType)
+                put("consumption_local_date", localDate)
+            },
+        )
+        return AppJson.decodeFromJsonElement(CreateMealResponse.serializer(), result)
+    }
+
+    override suspend fun addFoodToMeal(
+        mealId: String,
+        foodId: String,
+        grams: Double,
+        expectedMealRevision: Long,
+    ): AddFoodToMealResponse {
+        require(grams > 0.0) { "La quantité doit être supérieure à zéro." }
+        val result = executeMutation(
+            commandType = "suivi_alimentation/v2/add_food_to_meal",
+            payload = buildJsonObject {
+                put("meal_id", mealId)
+                put("food_id", foodId)
+                put("quantity_value", grams)
+                put("quantity_unit", "g")
+                put("expected_meal_revision", expectedMealRevision)
+            },
+        )
+        return AppJson.decodeFromJsonElement(AddFoodToMealResponse.serializer(), result)
+    }
+
+    override suspend fun validateMeal(mealId: String, expectedMealRevision: Long): ValidateMealResponse {
+        val result = executeMutation(
+            commandType = "suivi_alimentation/v2/validate_meal",
+            payload = buildJsonObject {
+                put("meal_id", mealId)
+                put("expected_meal_revision", expectedMealRevision)
+            },
+        )
+        return AppJson.decodeFromJsonElement(ValidateMealResponse.serializer(), result)
+    }
+
     override suspend fun executeMutation(
         commandType: String,
         payload: JsonObject,
@@ -117,7 +178,7 @@ class DefaultNutritionRepository(
     }
 
     private suspend fun executePending(pending: PendingOperation): JsonElement {
-        val payload = AppJson.parseToJsonElement(pending.payloadJson).jsonObject
+        val payload = AppJson.parseToJsonElement(pending.payloadJson) as JsonObject
         return try {
             val result = api.rawCommand(pending.commandType, payload)
             operationStore.complete(pending.operationId)
@@ -139,6 +200,21 @@ class DefaultNutritionRepository(
     private fun recordRevisionsFromResult(result: JsonElement) {
         val obj = result as? JsonObject ?: return
         obj["storeRevision"]?.jsonPrimitive?.content?.toLongOrNull()?.let(revisionTracker::recordStoreRevision)
+        recordEntityObject(obj)
+        listOf("meal", "item", "food", "entity").forEach { key ->
+            (obj[key] as? JsonObject)?.let(::recordEntityObject)
+        }
+        (obj["dailyHistory"] as? JsonObject)?.let { history ->
+            val profileId = history["profileId"]?.jsonPrimitive?.content
+            val localDate = history["localDate"]?.jsonPrimitive?.content
+            val revision = history["revision"]?.jsonPrimitive?.content?.toLongOrNull()
+            if (profileId != null && localDate != null && revision != null) {
+                revisionTracker.recordEntityRevision("$profileId:$localDate", revision)
+            }
+        }
+    }
+
+    private fun recordEntityObject(obj: JsonObject) {
         val id = obj["id"]?.jsonPrimitive?.content
         val revision = obj["revision"]?.jsonPrimitive?.content?.toLongOrNull()
         if (id != null && revision != null) revisionTracker.recordEntityRevision(id, revision)

@@ -14,19 +14,26 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.suivialimentation.android.data.repository.MealWithItems
 import com.suivialimentation.android.di.AppContainer
 import com.suivialimentation.android.ui.AppEvent
 import com.suivialimentation.android.ui.AppUiState
 import com.suivialimentation.android.ui.AppViewModel
 import com.suivialimentation.android.ui.LoginScreen
+import com.suivialimentation.android.ui.mealentry.MealEntryScreen
+import com.suivialimentation.android.ui.mealentry.MealEntryViewModel
 import com.suivialimentation.android.ui.theme.SuiviAlimentationTheme
 import com.suivialimentation.android.ui.today.TodayScreen
 import com.suivialimentation.android.ui.today.TodayViewModel
+import java.util.UUID
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -83,6 +90,13 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+private data class MealEntryRoute(
+    val token: String,
+    val profileId: String,
+    val localDate: String,
+    val draft: MealWithItems? = null,
+)
+
 @Composable
 private fun AppRoot(appViewModel: AppViewModel, container: AppContainer) {
     val appState by appViewModel.state.collectAsStateWithLifecycle()
@@ -102,18 +116,73 @@ private fun AppRoot(appViewModel: AppViewModel, container: AppContainer) {
             onLogin = appViewModel::startLogin,
             onCancel = appViewModel::cancelLogin,
         )
-        is AppUiState.SignedIn -> {
-            val todayViewModel: TodayViewModel = viewModel(
-                key = "today-${state.sessionGeneration}",
-                factory = TodayViewModel.Factory(container.repository),
-            )
-            val todayState by todayViewModel.state.collectAsStateWithLifecycle()
-            TodayScreen(
-                state = todayState,
-                onRetry = todayViewModel::retry,
-                onLogout = appViewModel::logout,
-            )
-        }
+        is AppUiState.SignedIn -> SignedInRoot(state.sessionGeneration, appViewModel, container)
+    }
+}
+
+@Composable
+private fun SignedInRoot(sessionGeneration: Long, appViewModel: AppViewModel, container: AppContainer) {
+    val todayViewModel: TodayViewModel = viewModel(
+        key = "today-$sessionGeneration",
+        factory = TodayViewModel.Factory(container.repository),
+    )
+    val todayState by todayViewModel.state.collectAsStateWithLifecycle()
+    var mealEntryRoute by remember(sessionGeneration) { mutableStateOf<MealEntryRoute?>(null) }
+    val route = mealEntryRoute
+
+    if (route == null) {
+        TodayScreen(
+            state = todayState,
+            onRetry = todayViewModel::retry,
+            onLogout = appViewModel::logout,
+            onAddMeal = {
+                val content = todayState.content ?: return@TodayScreen
+                mealEntryRoute = MealEntryRoute(
+                    token = UUID.randomUUID().toString(),
+                    profileId = content.profile.id,
+                    localDate = content.localDate,
+                )
+            },
+            onContinueDraft = { draft ->
+                val content = todayState.content ?: return@TodayScreen
+                mealEntryRoute = MealEntryRoute(
+                    token = "${draft.meal.id}-${UUID.randomUUID()}",
+                    profileId = content.profile.id,
+                    localDate = content.localDate,
+                    draft = draft,
+                )
+            },
+        )
+    } else {
+        val mealEntryViewModel: MealEntryViewModel = viewModel(
+            key = "meal-entry-${route.token}",
+            factory = MealEntryViewModel.Factory(
+                repository = container.repository,
+                profileId = route.profileId,
+                localDate = route.localDate,
+                initialDraft = route.draft,
+            ),
+        )
+        val mealEntryState by mealEntryViewModel.state.collectAsStateWithLifecycle()
+        MealEntryScreen(
+            state = mealEntryState,
+            onSelectMealType = mealEntryViewModel::selectMealType,
+            onQueryChange = mealEntryViewModel::updateQuery,
+            onSearch = mealEntryViewModel::search,
+            onSelectFood = mealEntryViewModel::selectFood,
+            onDismissFood = mealEntryViewModel::dismissFood,
+            onQuantityChange = mealEntryViewModel::updateQuantity,
+            onAddFood = mealEntryViewModel::addSelectedFood,
+            onValidate = mealEntryViewModel::validateMeal,
+            onBack = {
+                mealEntryRoute = null
+                todayViewModel.retry()
+            },
+            onValidated = {
+                mealEntryRoute = null
+                todayViewModel.retry()
+            },
+        )
     }
 }
 
