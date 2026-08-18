@@ -8,6 +8,7 @@ import com.suivialimentation.android.data.ha.TransportDisconnectedException
 import com.suivialimentation.android.data.model.AddFoodToMealResponse
 import com.suivialimentation.android.data.model.CiqualFoodCandidate
 import com.suivialimentation.android.data.model.CreateMealResponse
+import com.suivialimentation.android.data.model.DuplicateMealResponse
 import com.suivialimentation.android.data.model.GoalVersion
 import com.suivialimentation.android.data.model.ImportFoodResponse
 import com.suivialimentation.android.data.model.NutrientSnapshot
@@ -217,6 +218,17 @@ class DefaultNutritionRepository(
             },
         )
         return AppJson.decodeFromJsonElement(ValidateMealResponse.serializer(), result)
+    }
+
+    override suspend fun duplicateMeal(sourceMealId: String, targetLocalDate: String): DuplicateMealResponse {
+        val result = executeMutation(
+            commandType = "suivi_alimentation/v2/duplicate_meal",
+            payload = buildJsonObject {
+                put("source_meal_id", sourceMealId)
+                put("target_local_date", targetLocalDate)
+            },
+        )
+        return AppJson.decodeFromJsonElement(DuplicateMealResponse.serializer(), result)
     }
 
     override suspend fun executeMutation(

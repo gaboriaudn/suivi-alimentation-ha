@@ -4,6 +4,7 @@ import com.suivialimentation.android.data.ha.ConnectionState
 import com.suivialimentation.android.data.model.AddFoodToMealResponse
 import com.suivialimentation.android.data.model.CiqualFoodCandidate
 import com.suivialimentation.android.data.model.CreateMealResponse
+import com.suivialimentation.android.data.model.DuplicateMealResponse
 import com.suivialimentation.android.data.model.GoalVersion
 import com.suivialimentation.android.data.model.FoodReference
 import com.suivialimentation.android.data.model.ImportFoodResponse
@@ -85,6 +86,7 @@ interface NutritionRepository {
         expectedMealRevision: Long,
     ): AddFoodToMealResponse
     suspend fun validateMeal(mealId: String, expectedMealRevision: Long): ValidateMealResponse
+    suspend fun duplicateMeal(sourceMealId: String, targetLocalDate: String): DuplicateMealResponse
 
     suspend fun executeMutation(
         commandType: String,

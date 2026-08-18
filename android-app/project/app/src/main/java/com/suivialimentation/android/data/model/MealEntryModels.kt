@@ -99,3 +99,12 @@ data class ValidateMealResponse(
     val meal: Meal,
     val dailyHistory: DayHistory? = null,
 )
+
+@Serializable
+data class DuplicateMealResponse(
+    val ok: Boolean = true,
+    val idempotent: Boolean = false,
+    val storeRevision: Long,
+    val meal: Meal,
+    val items: List<MealItem> = emptyList(),
+)

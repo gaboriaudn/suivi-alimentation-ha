@@ -56,6 +56,7 @@ def async_setup(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, websocket_v2_get_day)
     websocket_api.async_register_command(hass, websocket_v2_get_recent)
     websocket_api.async_register_command(hass, websocket_v2_set_favorite)
+    websocket_api.async_register_command(hass, websocket_v2_duplicate_meal)
     websocket_api.async_register_command(hass, websocket_v2_create_meal)
     websocket_api.async_register_command(hass, websocket_v2_add_meal_item)
     websocket_api.async_register_command(hass, websocket_v2_update_meal_item)
@@ -253,6 +254,33 @@ async def websocket_v2_set_favorite(hass, connection, msg) -> None:
             profile_id=msg["profile_id"],
             food_ref_id=msg["food_ref_id"],
             favorite=msg["favorite"],
+            operation_id=msg["operation_id"],
+        )
+        connection.send_result(msg["id"], result)
+    except Exception as err:
+        _send_repo_error(connection, msg["id"], err)
+
+
+@websocket_api.websocket_command({
+    "type": f"{DOMAIN}/v2/duplicate_meal",
+    "source_meal_id": str,
+    "target_local_date": str,
+    "operation_id": str,
+})
+@websocket_api.async_response
+async def websocket_v2_duplicate_meal(hass, connection, msg) -> None:
+    repository = _repository(hass)
+    if repository is None:
+        connection.send_error(msg["id"], "not_ready", "Repository unavailable")
+        return
+    source = repository.snapshot()["mealsById"].get(msg["source_meal_id"])
+    if source is None or _require_profile(connection, repository, source.get("profileId")) is None:
+        connection.send_error(msg["id"], "unauthorized", "Meal unavailable")
+        return
+    try:
+        result = await repository.async_duplicate_meal(
+            source_meal_id=msg["source_meal_id"],
+            target_local_date=msg["target_local_date"],
             operation_id=msg["operation_id"],
         )
         connection.send_result(msg["id"], result)

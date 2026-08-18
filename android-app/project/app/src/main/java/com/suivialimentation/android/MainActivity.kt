@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -134,6 +135,18 @@ private fun SignedInRoot(sessionGeneration: Long, appViewModel: AppViewModel, co
     var mealEntryRoute by remember(sessionGeneration) { mutableStateOf<MealEntryRoute?>(null) }
     val route = mealEntryRoute
 
+    LaunchedEffect(todayState.duplicatedDraft?.meal?.id) {
+        val duplicated = todayState.duplicatedDraft ?: return@LaunchedEffect
+        val content = todayState.content ?: return@LaunchedEffect
+        mealEntryRoute = MealEntryRoute(
+            token = "${duplicated.meal.id}-${UUID.randomUUID()}",
+            profileId = content.profile.id,
+            localDate = content.localDate,
+            draft = duplicated,
+        )
+        todayViewModel.consumeDuplicatedDraft()
+    }
+
     if (route == null) {
         TodayScreen(
             state = todayState,
@@ -156,6 +169,7 @@ private fun SignedInRoot(sessionGeneration: Long, appViewModel: AppViewModel, co
                     draft = draft,
                 )
             },
+            onDuplicateMeal = todayViewModel::duplicateMeal,
         )
     } else {
         val mealEntryViewModel: MealEntryViewModel = viewModel(

@@ -43,6 +43,7 @@ fun TodayScreen(
     onLogout: () -> Unit,
     onAddMeal: () -> Unit,
     onContinueDraft: (MealWithItems) -> Unit,
+    onDuplicateMeal: (MealWithItems) -> Unit,
 ) {
     Scaffold(
         topBar = {
@@ -62,6 +63,8 @@ fun TodayScreen(
                     onRetry = onRetry,
                     onAddMeal = onAddMeal,
                     onContinueDraft = onContinueDraft,
+                    onDuplicateMeal = onDuplicateMeal,
+                    duplicatingMealId = state.duplicatingMealId,
                 )
                 else -> ErrorBody(state.error ?: "Données indisponibles.", onRetry)
             }
@@ -115,6 +118,8 @@ private fun TodayContent(
     onRetry: () -> Unit,
     onAddMeal: () -> Unit,
     onContinueDraft: (MealWithItems) -> Unit,
+    onDuplicateMeal: (MealWithItems) -> Unit,
+    duplicatingMealId: String?,
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -173,7 +178,9 @@ private fun TodayContent(
                 }
             }
         } else {
-            items(data.meals, key = { it.meal.id }) { meal -> MealCard(meal, onContinueDraft) }
+            items(data.meals, key = { it.meal.id }) { meal ->
+                MealCard(meal, onContinueDraft, onDuplicateMeal, duplicatingMealId == meal.meal.id)
+            }
         }
         item { Text("Révision serveur ${data.storeRevision}", style = MaterialTheme.typography.labelSmall) }
     }
@@ -207,7 +214,12 @@ private fun GoalCard(title: String, value: Double?, target: Double?, unit: Strin
 }
 
 @Composable
-private fun MealCard(group: MealWithItems, onContinueDraft: (MealWithItems) -> Unit) {
+private fun MealCard(
+    group: MealWithItems,
+    onContinueDraft: (MealWithItems) -> Unit,
+    onDuplicateMeal: (MealWithItems) -> Unit,
+    duplicating: Boolean,
+) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp)) {
             Text(
@@ -232,6 +244,11 @@ private fun MealCard(group: MealWithItems, onContinueDraft: (MealWithItems) -> U
             if (group.meal.status == "draft") {
                 Spacer(Modifier.height(8.dp))
                 TextButton(onClick = { onContinueDraft(group) }) { Text("Continuer le brouillon") }
+            } else if (group.meal.status == "validated") {
+                Spacer(Modifier.height(8.dp))
+                TextButton(onClick = { onDuplicateMeal(group) }, enabled = !duplicating) {
+                    Text(if (duplicating) "Duplication…" else "Dupliquer ce repas")
+                }
             }
         }
     }
