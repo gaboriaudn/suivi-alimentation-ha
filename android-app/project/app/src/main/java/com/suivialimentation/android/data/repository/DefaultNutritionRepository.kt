@@ -167,13 +167,20 @@ class DefaultNutritionRepository(
     }
 
     override suspend fun retryPendingOperations() {
+        // A pending operation means the process died or the transport was interrupted
+        // before the client received a definitive result. The current v2 backend records
+        // operation ids but cannot replay the original mutation result reliably for every
+        // command. Re-sending blindly could therefore duplicate a meal or item. Discard
+        // the ambiguous client retry and let the UI reload Home Assistant, the source of
+        // truth; the user can safely continue from the draft or validated state found there.
         for (pending in operationStore.list()) {
-            try {
-                executePending(pending)
-            } catch (_: TransportDisconnectedException) {
-                return
-            } catch (_: Throwable) {
-            }
+            operationStore.complete(pending.operationId)
+            _issues.tryEmit(
+                RepositoryIssue.MutationRejected(
+                    pending.operationId,
+                    "Une écriture interrompue n'a pas été rejouée automatiquement. Les données Home Assistant doivent être rechargées avant de continuer.",
+                ),
+            )
         }
     }
 
@@ -193,6 +200,16 @@ class DefaultNutritionRepository(
             }
             throw e
         } catch (e: TransportDisconnectedException) {
+            // Do not replay this mutation automatically. It may already have committed
+            // server-side even though the response was lost. Home Assistant will be
+            // reloaded on reconnect and remains the only source of truth.
+            operationStore.complete(pending.operationId)
+            _issues.tryEmit(
+                RepositoryIssue.MutationRejected(
+                    pending.operationId,
+                    "Connexion interrompue pendant l'écriture. Vérifiez les données Home Assistant avant de réessayer.",
+                ),
+            )
             throw e
         }
     }
