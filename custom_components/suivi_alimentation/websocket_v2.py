@@ -55,6 +55,7 @@ def async_setup(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, websocket_v2_get_profile)
     websocket_api.async_register_command(hass, websocket_v2_get_day)
     websocket_api.async_register_command(hass, websocket_v2_get_recent)
+    websocket_api.async_register_command(hass, websocket_v2_set_favorite)
     websocket_api.async_register_command(hass, websocket_v2_create_meal)
     websocket_api.async_register_command(hass, websocket_v2_add_meal_item)
     websocket_api.async_register_command(hass, websocket_v2_update_meal_item)
@@ -227,7 +228,36 @@ async def websocket_v2_get_recent(hass, connection, msg) -> None:
                 break
         if len(recent) >= 20:
             break
-    connection.send_result(msg["id"], {"items": recent})
+    favorites = [
+        favorite for favorite in data["favoritesById"].values()
+        if favorite.get("profileId") == profile_id
+    ]
+    connection.send_result(msg["id"], {"items": recent, "favorites": favorites})
+
+
+@websocket_api.websocket_command({
+    "type": f"{DOMAIN}/v2/set_favorite",
+    "profile_id": str,
+    "food_ref_id": str,
+    "favorite": bool,
+    "operation_id": str,
+})
+@websocket_api.async_response
+async def websocket_v2_set_favorite(hass, connection, msg) -> None:
+    repository = _repository(hass)
+    if repository is None or _require_profile(connection, repository, msg["profile_id"]) is None:
+        connection.send_error(msg["id"], "unauthorized", "Profile unavailable")
+        return
+    try:
+        result = await repository.async_set_favorite(
+            profile_id=msg["profile_id"],
+            food_ref_id=msg["food_ref_id"],
+            favorite=msg["favorite"],
+            operation_id=msg["operation_id"],
+        )
+        connection.send_result(msg["id"], result)
+    except Exception as err:
+        _send_repo_error(connection, msg["id"], err)
 
 
 @websocket_api.websocket_command({

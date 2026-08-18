@@ -37,6 +37,7 @@ import com.suivialimentation.android.data.model.CiqualFoodCandidate
 import com.suivialimentation.android.data.model.NutrientSnapshot
 import com.suivialimentation.android.data.model.OffProductCandidate
 import com.suivialimentation.android.data.model.PersonalFoodCandidate
+import com.suivialimentation.android.data.repository.QuickFood
 import java.text.NumberFormat
 import java.util.Locale
 
@@ -53,6 +54,8 @@ fun MealEntryScreen(
     onScanBarcode: () -> Unit,
     onLookupBarcode: () -> Unit,
     onSelectOffProduct: (OffProductCandidate) -> Unit,
+    onSelectQuickFood: (QuickFood) -> Unit,
+    onToggleFavorite: (QuickFood) -> Unit,
     onSelectPortion: (String?) -> Unit,
     onDismissFood: () -> Unit,
     onQuantityChange: (String) -> Unit,
@@ -111,6 +114,25 @@ fun MealEntryScreen(
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Text(state.error, modifier = Modifier.padding(12.dp))
                     }
+                }
+            }
+
+            if (state.favoriteFoods.isNotEmpty()) {
+                item {
+                    Text("Favoris", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                }
+                items(state.favoriteFoods, key = { "favorite-${it.food.id}" }) { quick ->
+                    QuickFoodCard(quick, onSelectQuickFood, onToggleFavorite, state.mutating)
+                }
+            }
+
+            val nonFavoriteRecents = state.recentFoods.filterNot { it.isFavorite }
+            if (nonFavoriteRecents.isNotEmpty()) {
+                item {
+                    Text("Récents", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                }
+                items(nonFavoriteRecents, key = { "recent-${it.food.id}" }) { quick ->
+                    QuickFoodCard(quick, onSelectQuickFood, onToggleFavorite, state.mutating)
                 }
             }
 
@@ -307,6 +329,32 @@ fun MealEntryScreen(
                         if (state.mutating) CircularProgressIndicator(modifier = Modifier.height(18.dp))
                         else Text("Valider le repas")
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun QuickFoodCard(
+    quick: QuickFood,
+    onSelect: (QuickFood) -> Unit,
+    onToggleFavorite: (QuickFood) -> Unit,
+    busy: Boolean,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp)) {
+            Text(quick.food.label, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+            quick.food.brand?.takeIf { it.isNotBlank() }?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall)
+            }
+            quick.lastUsedLocalDate?.let {
+                Text("Utilisé le $it", style = MaterialTheme.typography.labelSmall)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = { onSelect(quick) }, enabled = !busy) { Text("Choisir") }
+                TextButton(onClick = { onToggleFavorite(quick) }, enabled = !busy) {
+                    Text(if (quick.isFavorite) "Retirer des favoris" else "Ajouter aux favoris")
                 }
             }
         }

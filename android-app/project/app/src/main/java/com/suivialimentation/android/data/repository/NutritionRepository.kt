@@ -5,6 +5,7 @@ import com.suivialimentation.android.data.model.AddFoodToMealResponse
 import com.suivialimentation.android.data.model.CiqualFoodCandidate
 import com.suivialimentation.android.data.model.CreateMealResponse
 import com.suivialimentation.android.data.model.GoalVersion
+import com.suivialimentation.android.data.model.FoodReference
 import com.suivialimentation.android.data.model.ImportFoodResponse
 import com.suivialimentation.android.data.model.Meal
 import com.suivialimentation.android.data.model.MealItem
@@ -31,6 +32,17 @@ data class TodayData(
     val hasHistory: Boolean,
     val meals: List<MealWithItems>,
     val storeRevision: Long,
+)
+
+data class QuickFood(
+    val food: FoodReference,
+    val isFavorite: Boolean,
+    val lastUsedLocalDate: String? = null,
+)
+
+data class QuickFoods(
+    val favorites: List<QuickFood>,
+    val recents: List<QuickFood>,
 )
 
 sealed interface RepositoryIssue {
@@ -61,6 +73,8 @@ interface NutritionRepository {
     suspend fun importPersonalFood(profileId: String, legacyFoodId: String): ImportFoodResponse
     suspend fun getOffProduct(profileId: String, barcode: String): OffProductCandidate
     suspend fun importOffFood(profileId: String, barcode: String): ImportFoodResponse
+    suspend fun loadQuickFoods(profileId: String): QuickFoods
+    suspend fun setFavorite(profileId: String, foodRefId: String, favorite: Boolean)
     suspend fun createMeal(profileId: String, mealType: String, localDate: String): CreateMealResponse
     suspend fun addFoodToMeal(
         mealId: String,

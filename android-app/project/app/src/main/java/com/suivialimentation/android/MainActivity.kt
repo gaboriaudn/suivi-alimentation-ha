@@ -200,6 +200,8 @@ private fun SignedInRoot(sessionGeneration: Long, appViewModel: AppViewModel, co
             },
             onLookupBarcode = mealEntryViewModel::lookupBarcode,
             onSelectOffProduct = mealEntryViewModel::selectOffProduct,
+            onSelectQuickFood = mealEntryViewModel::selectQuickFood,
+            onToggleFavorite = mealEntryViewModel::toggleFavorite,
             onSelectPortion = mealEntryViewModel::selectPortion,
             onDismissFood = mealEntryViewModel::dismissFood,
             onQuantityChange = mealEntryViewModel::updateQuantity,
