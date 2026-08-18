@@ -27,7 +27,11 @@ class PhotoMealViewModel(
     private val _state = MutableStateFlow(PhotoMealUiState())
     val state: StateFlow<PhotoMealUiState> = _state.asStateFlow()
 
-    fun analyze(uri: Uri, mode: PhotoAnalysisMode) {
+    fun analyzeFood(uri: Uri) = analyze(uri, PhotoAnalysisMode.FOOD)
+
+    fun analyzeMeal(uri: Uri) = analyze(uri, PhotoAnalysisMode.MEAL)
+
+    private fun analyze(uri: Uri, mode: PhotoAnalysisMode) {
         viewModelScope.launch {
             _state.update { PhotoMealUiState(loading = true, mode = mode) }
             try {
