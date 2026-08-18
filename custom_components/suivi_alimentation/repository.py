@@ -281,6 +281,58 @@ class SuiviAlimentationRepository:
         result["meal"] = meal
         return result
 
+    async def async_set_favorite(
+        self,
+        *,
+        profile_id: str,
+        food_ref_id: str,
+        favorite: bool,
+        operation_id: str,
+    ) -> dict[str, Any]:
+        """Create or remove one profile-scoped food favorite atomically."""
+        candidate = self.snapshot()
+        if profile_id not in candidate["profilesById"]:
+            raise RepositoryValidationError("Profile not found")
+        food = candidate["foodReferencesById"].get(food_ref_id)
+        if food is None or food.get("ownerProfileId") not in (None, profile_id):
+            raise RepositoryValidationError("Food not found")
+
+        favorite_id = str(uuid.uuid5(
+            uuid.NAMESPACE_URL,
+            f"{DOMAIN}:favorite:{profile_id}:{food_ref_id}",
+        ))
+        current = candidate["favoritesById"].get(favorite_id)
+        now = utc_now_iso()
+        entity = current
+        if favorite:
+            entity = {
+                "id": favorite_id,
+                "profileId": profile_id,
+                "foodRefId": food_ref_id,
+                "createdAt": current.get("createdAt", now) if current else now,
+                "updatedAt": now,
+                "revision": int(current.get("revision", 0)) + 1 if current else 1,
+            }
+            candidate["favoritesById"][favorite_id] = entity
+        else:
+            candidate["favoritesById"].pop(favorite_id, None)
+
+        result = await self._commit(
+            candidate,
+            operation_id=operation_id,
+            event={
+                "entityType": "favorite",
+                "entityId": favorite_id,
+                "operation": "create" if favorite else "delete",
+                "entityRevision": entity.get("revision") if favorite and entity else None,
+                "profileId": profile_id,
+                "foodRefId": food_ref_id,
+            },
+        )
+        result["favorite"] = entity if favorite else None
+        result["foodRefId"] = food_ref_id
+        return result
+
     async def async_add_meal_item(
         self,
         *,
