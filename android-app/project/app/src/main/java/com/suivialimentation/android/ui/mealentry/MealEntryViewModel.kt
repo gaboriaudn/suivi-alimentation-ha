@@ -167,6 +167,11 @@ class MealEntryViewModel(
                     it.copy(
                         draftMeal = added.meal,
                         items = it.items + added.item,
+                        query = "",
+                        searchResults = emptyList(),
+                        searchAttempted = false,
+                        searchedQuery = null,
+                        effectiveSearchQuery = null,
                         selectedFood = null,
                         quantityText = "",
                         mutating = false,
