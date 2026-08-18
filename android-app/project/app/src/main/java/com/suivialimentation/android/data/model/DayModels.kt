@@ -80,4 +80,15 @@ data class RecentItem(
 @Serializable
 data class RecentResponse(
     val items: List<RecentItem> = emptyList(),
+    val favorites: List<FavoriteItem> = emptyList(),
+)
+
+@Serializable
+data class FavoriteItem(
+    val id: String,
+    val profileId: String,
+    val foodRefId: String,
+    val createdAt: String,
+    val updatedAt: String,
+    val revision: Long,
 )
