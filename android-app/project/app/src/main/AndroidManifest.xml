@@ -10,6 +10,10 @@
         android:theme="@style/Theme.SuiviAlimentation"
         android:usesCleartextTraffic="true">
 
+        <meta-data
+            android:name="com.google.mlkit.vision.DEPENDENCIES"
+            android:value="barcode_ui" />
+
         <activity
             android:name=".auth.AuthCallbackActivity"
             android:exported="true"
