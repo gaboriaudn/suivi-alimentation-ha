@@ -99,7 +99,20 @@ class PortionConversionTest(unittest.TestCase):
                 "fdc:missing",
             )
 
+    def test_personal_food_search_accepts_oeuf_plural(self):
+        foods = [{
+            "id": "personal-egg",
+            "name": "Œuf",
+            "mode": "unit",
+            "unitLabel": "œuf",
+            "caloriesPerUnit": 70,
+            "proteinsPerUnit": 6,
+        }]
+
+        results = self.service.search_personal_foods(foods, "oeufs", {})
+
+        self.assertEqual(["Œuf"], [item["label"] for item in results])
+
 
 if __name__ == "__main__":
     unittest.main()
-
