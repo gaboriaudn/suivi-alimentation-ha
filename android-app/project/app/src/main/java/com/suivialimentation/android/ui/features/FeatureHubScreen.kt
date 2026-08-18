@@ -1,5 +1,6 @@
 package com.suivialimentation.android.ui.features
 
+import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -19,6 +20,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -30,8 +32,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
 import com.suivialimentation.android.data.features.HistoryAnalysis
 import com.suivialimentation.android.data.features.RecipeSummary
 import com.suivialimentation.android.data.photo.PhotoFoodSuggestion
@@ -39,6 +43,7 @@ import com.suivialimentation.android.data.repository.MealWithItems
 import com.suivialimentation.android.ui.components.AppSpacing
 import com.suivialimentation.android.ui.components.MinimumTouchTarget
 import com.suivialimentation.android.ui.photo.PhotoMealUiState
+import java.io.File
 import java.text.NumberFormat
 import java.util.Locale
 
@@ -55,13 +60,21 @@ fun FeatureHubScreen(
     onCreateFromRecipe: (String, String) -> Unit,
     onBack: () -> Unit,
 ) {
+    val context = LocalContext.current
     var photoMealType by remember { mutableStateOf("Déjeuner") }
     var recipeMealType by remember { mutableStateOf("Déjeuner") }
     var pendingRecipe by remember { mutableStateOf<RecipeSummary?>(null) }
     var pendingSaveMeal by remember { mutableStateOf<MealWithItems?>(null) }
     var recipeName by remember { mutableStateOf("") }
+    var pendingCameraUri by remember { mutableStateOf<Uri?>(null) }
+
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) onAnalyzePhoto(uri)
+    }
+    val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+        val uri = pendingCameraUri
+        if (success && uri != null) onAnalyzePhoto(uri)
+        pendingCameraUri = null
     }
 
     pendingRecipe?.let { recipe ->
@@ -132,11 +145,22 @@ fun FeatureHubScreen(
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(AppSpacing.md), verticalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
                         Button(
+                            onClick = {
+                                val uri = createCameraUri(context)
+                                pendingCameraUri = uri
+                                cameraLauncher.launch(uri)
+                            },
+                            enabled = !photoState.loading && !featureState.busy,
+                            modifier = Modifier.fillMaxWidth().heightIn(min = MinimumTouchTarget),
+                        ) {
+                            Text(if (photoState.loading) "Analyse en cours…" else "Prendre une photo")
+                        }
+                        OutlinedButton(
                             onClick = { imagePicker.launch("image/*") },
                             enabled = !photoState.loading && !featureState.busy,
                             modifier = Modifier.fillMaxWidth().heightIn(min = MinimumTouchTarget),
                         ) {
-                            Text(if (photoState.loading) "Analyse en cours…" else "Prendre ou choisir une photo")
+                            Text("Choisir une photo")
                         }
                         if (photoState.loading) CircularProgressIndicator()
                         photoState.error?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
@@ -204,6 +228,12 @@ fun FeatureHubScreen(
             featureState.message?.let { message -> item { Text(message, style = MaterialTheme.typography.bodySmall) } }
         }
     }
+}
+
+private fun createCameraUri(context: Context): Uri {
+    val imageDir = File(context.cacheDir, "images").apply { mkdirs() }
+    val imageFile = File.createTempFile("meal_", ".jpg", imageDir)
+    return FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", imageFile)
 }
 
 @Composable
