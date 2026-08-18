@@ -7,14 +7,28 @@ import com.suivialimentation.android.data.ha.HomeAssistantCommandException
 import com.suivialimentation.android.data.model.CiqualFoodCandidate
 import com.suivialimentation.android.data.model.Meal
 import com.suivialimentation.android.data.model.MealItem
+import com.suivialimentation.android.data.model.NutrientSnapshot
+import com.suivialimentation.android.data.model.PersonalFoodCandidate
+import com.suivialimentation.android.data.model.PortionOption
 import com.suivialimentation.android.data.repository.MealWithItems
 import com.suivialimentation.android.data.repository.NutritionRepository
 import java.util.Locale
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+
+data class FoodChoice(
+    val sourceType: String,
+    val sourceExternalId: String,
+    val label: String,
+    val nutrientsPer100g: NutrientSnapshot?,
+    val nutrientsPerUnit: NutrientSnapshot? = null,
+    val servingDefinitions: List<PortionOption> = emptyList(),
+)
 
 data class MealEntryUiState(
     val profileId: String,
@@ -24,10 +38,12 @@ data class MealEntryUiState(
     val items: List<MealItem> = emptyList(),
     val query: String = "",
     val searchResults: List<CiqualFoodCandidate> = emptyList(),
+    val personalSearchResults: List<PersonalFoodCandidate> = emptyList(),
     val searchAttempted: Boolean = false,
     val searchedQuery: String? = null,
     val effectiveSearchQuery: String? = null,
-    val selectedFood: CiqualFoodCandidate? = null,
+    val selectedFood: FoodChoice? = null,
+    val selectedPortionId: String? = null,
     val quantityText: String = "",
     val searching: Boolean = false,
     val mutating: Boolean = false,
@@ -62,10 +78,12 @@ class MealEntryViewModel(
             it.copy(
                 query = value,
                 searchResults = emptyList(),
+                personalSearchResults = emptyList(),
                 searchAttempted = false,
                 searchedQuery = null,
                 effectiveSearchQuery = null,
                 selectedFood = null,
+                selectedPortionId = null,
                 quantityText = "",
                 error = null,
             )
@@ -88,6 +106,7 @@ class MealEntryViewModel(
                 it.copy(
                     searching = true,
                     searchResults = emptyList(),
+                    personalSearchResults = emptyList(),
                     searchAttempted = true,
                     searchedQuery = query,
                     effectiveSearchQuery = query,
@@ -98,7 +117,13 @@ class MealEntryViewModel(
             }
             try {
                 var effectiveQuery = query
-                var results = repository.searchCiqual(current.profileId, query)
+                val initial = coroutineScope {
+                    val personal = async { repository.searchPersonalFoods(current.profileId, query) }
+                    val ciqual = async { repository.searchCiqual(current.profileId, query) }
+                    personal.await() to ciqual.await()
+                }
+                val personalResults = initial.first
+                var results = initial.second
 
                 if (results.isEmpty()) {
                     for (broaderQuery in buildBroaderCiqualQueries(query)) {
@@ -115,22 +140,65 @@ class MealEntryViewModel(
                     it.copy(
                         searching = false,
                         searchResults = results,
+                        personalSearchResults = personalResults,
                         effectiveSearchQuery = effectiveQuery,
                         error = null,
                     )
                 }
             } catch (t: Throwable) {
-                _state.update { it.copy(searching = false, error = userMessage(t, "Recherche CIQUAL impossible.")) }
+                _state.update { it.copy(searching = false, error = userMessage(t, "Recherche impossible.")) }
             }
         }
     }
 
     fun selectFood(food: CiqualFoodCandidate) {
-        _state.update { it.copy(selectedFood = food, quantityText = "", error = null) }
+        _state.update {
+            it.copy(
+                selectedFood = FoodChoice(
+                    sourceType = food.sourceType,
+                    sourceExternalId = food.sourceExternalId,
+                    label = food.label,
+                    nutrientsPer100g = food.nutrientsPer100g,
+                    servingDefinitions = food.servingDefinitions,
+                ),
+                selectedPortionId = null,
+                quantityText = "",
+                error = null,
+            )
+        }
+    }
+
+    fun selectPersonalFood(food: PersonalFoodCandidate) {
+        _state.update {
+            it.copy(
+                selectedFood = FoodChoice(
+                    sourceType = food.sourceType,
+                    sourceExternalId = food.sourceExternalId,
+                    label = food.label,
+                    nutrientsPer100g = food.nutrientsPer100g,
+                    nutrientsPerUnit = food.nutrientsPerUnit,
+                    servingDefinitions = food.servingDefinitions,
+                ),
+                selectedPortionId = if (food.nutrientsPer100g == null) {
+                    food.servingDefinitions.firstOrNull()?.id
+                } else null,
+                quantityText = "",
+                error = null,
+            )
+        }
+    }
+
+    fun selectPortion(portionId: String?) {
+        val selected = _state.value.selectedFood ?: return
+        if (portionId == null && selected.nutrientsPer100g == null) return
+        if (portionId != null && selected.servingDefinitions.none { it.id == portionId }) return
+        _state.update { it.copy(selectedPortionId = portionId, quantityText = "", error = null) }
     }
 
     fun dismissFood() {
-        _state.update { it.copy(selectedFood = null, quantityText = "", error = null) }
+        _state.update {
+            it.copy(selectedFood = null, selectedPortionId = null, quantityText = "", error = null)
+        }
     }
 
     fun updateQuantity(value: String) {
@@ -142,16 +210,23 @@ class MealEntryViewModel(
         val current = _state.value
         val selected = current.selectedFood ?: return
         val mealType = current.mealType ?: return
-        val grams = current.quantityText.replace(',', '.').toDoubleOrNull()
-        if (grams == null || grams <= 0.0) {
-            _state.update { it.copy(error = "Indiquez une quantité en grammes supérieure à zéro.") }
+        val quantity = current.quantityText.replace(',', '.').toDoubleOrNull()
+        if (quantity == null || quantity <= 0.0) {
+            _state.update { it.copy(error = "Indiquez une quantité supérieure à zéro.") }
             return
+        }
+        val portion = current.selectedPortionId?.let { id ->
+            selected.servingDefinitions.firstOrNull { it.id == id }
         }
 
         viewModelScope.launch {
             _state.update { it.copy(mutating = true, error = null) }
             try {
-                val imported = repository.importCiqualFood(current.profileId, selected.sourceExternalId)
+                val imported = if (selected.sourceType == "personal") {
+                    repository.importPersonalFood(current.profileId, selected.sourceExternalId)
+                } else {
+                    repository.importCiqualFood(current.profileId, selected.sourceExternalId)
+                }
                 var meal = _state.value.draftMeal
                 if (meal == null) {
                     meal = repository.createMeal(current.profileId, mealType, current.localDate).meal
@@ -160,7 +235,9 @@ class MealEntryViewModel(
                 val added = repository.addFoodToMeal(
                     mealId = meal.id,
                     foodId = imported.food.id,
-                    grams = grams,
+                    quantityValue = quantity,
+                    quantityUnit = portion?.unitLabel ?: "g",
+                    portionId = portion?.id,
                     expectedMealRevision = meal.revision,
                 )
                 _state.update {
@@ -169,10 +246,12 @@ class MealEntryViewModel(
                         items = it.items + added.item,
                         query = "",
                         searchResults = emptyList(),
+                        personalSearchResults = emptyList(),
                         searchAttempted = false,
                         searchedQuery = null,
                         effectiveSearchQuery = null,
                         selectedFood = null,
+                        selectedPortionId = null,
                         quantityText = "",
                         mutating = false,
                         error = null,

@@ -35,6 +35,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.suivialimentation.android.data.model.CiqualFoodCandidate
 import com.suivialimentation.android.data.model.NutrientSnapshot
+import com.suivialimentation.android.data.model.PersonalFoodCandidate
 import java.text.NumberFormat
 import java.util.Locale
 
@@ -46,6 +47,8 @@ fun MealEntryScreen(
     onQueryChange: (String) -> Unit,
     onSearch: () -> Unit,
     onSelectFood: (CiqualFoodCandidate) -> Unit,
+    onSelectPersonalFood: (PersonalFoodCandidate) -> Unit,
+    onSelectPortion: (String?) -> Unit,
     onDismissFood: () -> Unit,
     onQuantityChange: (String) -> Unit,
     onAddFood: () -> Unit,
@@ -61,7 +64,9 @@ fun MealEntryScreen(
         QuantityDialog(
             food = selected,
             quantity = state.quantityText,
+            selectedPortionId = state.selectedPortionId,
             busy = state.mutating,
+            onSelectPortion = onSelectPortion,
             onQuantityChange = onQuantityChange,
             onAdd = onAddFood,
             onDismiss = onDismissFood,
@@ -127,24 +132,55 @@ fun MealEntryScreen(
                     Spacer(Modifier.height(8.dp))
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         CircularProgressIndicator(modifier = Modifier.height(18.dp))
-                        Text("Recherche dans CIQUAL…", style = MaterialTheme.typography.bodySmall)
+                        Text("Recherche dans Mes aliments et CIQUAL…", style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
 
-            if (!state.searching && state.searchAttempted && state.searchResults.isEmpty()) {
+            if (!state.searching && state.searchAttempted &&
+                state.searchResults.isEmpty() && state.personalSearchResults.isEmpty()
+            ) {
                 item {
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(14.dp)) {
                             Text("Aucun résultat trouvé", fontWeight = FontWeight.SemiBold)
                             Text(
-                                "CIQUAL n'a trouvé aucun aliment pour « ${state.searchedQuery.orEmpty()} ».",
+                                "Aucun aliment personnel ou CIQUAL trouvé pour « ${state.searchedQuery.orEmpty()} ».",
                                 style = MaterialTheme.typography.bodySmall,
                             )
                             Text(
                                 "Essayez un terme plus simple, par exemple « poulet » au lieu de « filet de poulet ».",
                                 style = MaterialTheme.typography.bodySmall,
                             )
+                        }
+                    }
+                }
+            }
+
+            if (state.personalSearchResults.isNotEmpty()) {
+                item {
+                    Text(
+                        "Mes aliments",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+                items(state.personalSearchResults, key = { it.sourceExternalId }) { food ->
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(14.dp)) {
+                            Text(food.label, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                            food.nutrientsPer100g?.let {
+                                Text("Pour 100 g : ${nutritionSummary(it)}", style = MaterialTheme.typography.bodySmall)
+                            }
+                            food.nutrientsPerUnit?.let {
+                                val unit = food.servingDefinitions.firstOrNull()?.unitLabel ?: "unité"
+                                Text("Pour 1 $unit : ${nutritionSummary(it)}", style = MaterialTheme.typography.bodySmall)
+                            }
+                            Text("Article personnel Home Assistant", style = MaterialTheme.typography.labelSmall)
+                            Spacer(Modifier.height(8.dp))
+                            TextButton(onClick = { onSelectPersonalFood(food) }, enabled = !state.mutating) {
+                                Text("Choisir")
+                            }
                         }
                     }
                 }
@@ -194,6 +230,9 @@ fun MealEntryScreen(
                             Column(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
                                 Text(item.labelSnapshot, fontWeight = FontWeight.Medium)
                                 Text("${formatNumber(item.quantityValue)} ${item.quantityUnit.orEmpty()}".trim(), style = MaterialTheme.typography.bodySmall)
+                                item.gramsEquivalent?.let {
+                                    Text("Équivalent : ${formatNumber(it)} g", style = MaterialTheme.typography.labelSmall)
+                                }
                                 item.nutritionSnapshot?.let { Text(nutritionSummary(it), style = MaterialTheme.typography.bodySmall) }
                             }
                         }
@@ -216,13 +255,16 @@ fun MealEntryScreen(
 
 @Composable
 private fun QuantityDialog(
-    food: CiqualFoodCandidate,
+    food: FoodChoice,
     quantity: String,
+    selectedPortionId: String?,
     busy: Boolean,
+    onSelectPortion: (String?) -> Unit,
     onQuantityChange: (String) -> Unit,
     onAdd: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val selectedPortion = food.servingDefinitions.firstOrNull { it.id == selectedPortionId }
     AlertDialog(
         onDismissRequest = { if (!busy) onDismiss() },
         title = { Text(food.label) },
@@ -232,19 +274,55 @@ private fun QuantityDialog(
                     Text(it, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
                     Text(preparationHelp(food.label), style = MaterialTheme.typography.bodySmall)
                 }
-                Text("Valeurs CIQUAL pour 100 g : ${nutritionSummary(food.nutrientsPer100g)}", style = MaterialTheme.typography.bodySmall)
+                food.nutrientsPer100g?.let {
+                    Text("Valeurs pour 100 g : ${nutritionSummary(it)}", style = MaterialTheme.typography.bodySmall)
+                }
+                food.nutrientsPerUnit?.let {
+                    Text("Valeurs par unité : ${nutritionSummary(it)}", style = MaterialTheme.typography.bodySmall)
+                }
+                Text("Mode de saisie", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (food.nutrientsPer100g != null) {
+                        item {
+                            FilterChip(
+                                selected = selectedPortionId == null,
+                                onClick = { onSelectPortion(null) },
+                                enabled = !busy,
+                                label = { Text("Grammes") },
+                            )
+                        }
+                    }
+                    items(food.servingDefinitions, key = { it.id }) { portion ->
+                        FilterChip(
+                            selected = selectedPortionId == portion.id,
+                            onClick = { onSelectPortion(portion.id) },
+                            enabled = !busy,
+                            label = {
+                                Text(
+                                    portion.label + (portion.gramsEquivalent?.let { " · ${formatNumber(it)} g" } ?: "")
+                                )
+                            },
+                        )
+                    }
+                }
                 OutlinedTextField(
                     value = quantity,
                     onValueChange = onQuantityChange,
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !busy,
                     singleLine = true,
-                    label = { Text("Quantité consommée") },
-                    suffix = { Text("g") },
+                    label = { Text(if (selectedPortion == null) "Quantité consommée" else "Nombre de portions") },
+                    suffix = { Text(if (selectedPortion == null) "g" else selectedPortion.unitLabel) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 )
                 Text(
-                    "Les portions usuelles (1 œuf, 1 tranche…) seront proposées uniquement lorsqu'une conversion en grammes sourcée est disponible.",
+                    when {
+                        selectedPortion?.gramsEquivalent != null ->
+                            "Conversion effectuée par Home Assistant depuis ${selectedPortion.sourceType}."
+                        selectedPortion != null ->
+                            "Portion personnelle : les nutriments par unité sont utilisés sans poids inventé."
+                        else -> "Le poids en grammes est envoyé à Home Assistant."
+                    },
                     style = MaterialTheme.typography.labelSmall,
                 )
             }

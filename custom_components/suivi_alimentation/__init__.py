@@ -1,4 +1,4 @@
-"""Suivi Alimentation integration - v0.20"""
+"""Suivi Alimentation integration - v0.24 Store v2 and usual portions."""
 from __future__ import annotations
 
 import logging
@@ -11,7 +11,13 @@ from homeassistant.components.http import StaticPathConfig
 
 from .const import DOMAIN, PANEL_URL, PANEL_TITLE, PANEL_ICON, PANEL_FILENAME
 from .store import SuiviAlimentationStore
+from .store_v2 import SuiviAlimentationStoreV2
+from .repository import SuiviAlimentationRepository
+from .nutrition_v2 import NutritionService
+from .nutrition_commands_v2 import NutritionCommands
 from .websocket import async_setup as async_setup_websocket
+from .websocket_v2 import async_setup as async_setup_websocket_v2
+from .websocket_nutrition_v2 import async_setup as async_setup_websocket_nutrition_v2
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -27,15 +33,27 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Suivi Alimentation from a config entry."""
 
-    # ── Store ──────────────────────────────────────────────────────────────
+    # Store v1 remains authoritative for the current dashboard.
     store = SuiviAlimentationStore(hass)
     await store.async_load()
     hass.data[DOMAIN] = store
-    _LOGGER.info("Suivi Alimentation v0.20: données chargées")
+    _LOGGER.info("Suivi Alimentation: Store v1 loaded and remains authoritative")
 
-    # ── WebSocket ──────────────────────────────────────────────────────────
+    # Store v2 is isolated and may only be mutated through the repository.
+    store_v2 = SuiviAlimentationStoreV2(hass)
+    await store_v2.async_load()
+    repository_v2 = SuiviAlimentationRepository(hass, store_v2)
+    hass.data[f"{DOMAIN}_store_v2"] = store_v2
+    hass.data[f"{DOMAIN}_repository_v2"] = repository_v2
+    nutrition_v2 = NutritionService(hass)
+    nutrition_commands_v2 = NutritionCommands(nutrition_v2, repository_v2)
+    hass.data[f"{DOMAIN}_nutrition_v2"] = nutrition_v2
+    hass.data[f"{DOMAIN}_nutrition_commands_v2"] = nutrition_commands_v2
+
     async_setup_websocket(hass)
-    _LOGGER.info("Suivi Alimentation v0.20: WebSocket initialisé")
+    async_setup_websocket_v2(hass)
+    async_setup_websocket_nutrition_v2(hass)
+    _LOGGER.info("Suivi Alimentation: WebSocket v1 + v2 initialized")
 
     # ── Fichiers statiques ─────────────────────────────────────────────────
     panel_url = f"/{DOMAIN}_panel"
@@ -73,5 +91,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
+    hass.data.pop(f"{DOMAIN}_nutrition_commands_v2", None)
+    hass.data.pop(f"{DOMAIN}_nutrition_v2", None)
+    hass.data.pop(f"{DOMAIN}_repository_v2", None)
+    hass.data.pop(f"{DOMAIN}_store_v2", None)
     hass.data.pop(DOMAIN, None)
     return True

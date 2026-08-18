@@ -49,6 +49,8 @@ data class MealItem(
     val quantityValue: Double? = null,
     val quantityUnit: String? = null,
     val gramsEquivalent: Double? = null,
+    val portionId: String? = null,
+    val portionLabelSnapshot: String? = null,
     val nutritionSnapshot: NutrientSnapshot? = null,
     val provenanceId: String? = null,
     val createdFromProposalId: String? = null,

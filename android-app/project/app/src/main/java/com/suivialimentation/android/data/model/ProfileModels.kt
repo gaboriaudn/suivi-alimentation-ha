@@ -46,6 +46,7 @@ data class FoodReference(
     val nutrientsPer100g: NutrientSnapshot? = null,
     val nutrientsPerUnit: NutrientSnapshot? = null,
     val servingDefinition: ServingDefinition? = null,
+    val servingDefinitions: List<PortionOption> = emptyList(),
     val defaultMealCategoryLegacy: String? = null,
     val provenanceId: String? = null,
     val derivedFromFoodRefId: String? = null,

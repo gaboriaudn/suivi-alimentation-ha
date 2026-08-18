@@ -9,6 +9,21 @@ fun quoted(value: String): String = "\"" + value.replace("\\", "\\\\").replace("
 val oauthClientId = providers.gradleProperty("HA_OAUTH_CLIENT_ID")
     .orElse("https://example.invalid/suivi-alimentation-android")
 val oauthRedirectUri = "suivialimentation://auth-callback"
+val appVersionCode = providers.gradleProperty("APP_VERSION_CODE")
+    .orElse("1")
+    .get()
+    .toInt()
+
+val signingStorePath = providers.environmentVariable("ANDROID_SIGNING_STORE_FILE").orNull
+val signingStorePassword = providers.environmentVariable("ANDROID_SIGNING_STORE_PASSWORD").orNull
+val signingKeyAlias = providers.environmentVariable("ANDROID_SIGNING_KEY_ALIAS").orNull
+val signingKeyPassword = providers.environmentVariable("ANDROID_SIGNING_KEY_PASSWORD").orNull
+val hasCiSigning = listOf(
+    signingStorePath,
+    signingStorePassword,
+    signingKeyAlias,
+    signingKeyPassword
+).all { !it.isNullOrBlank() }
 
 android {
     namespace = "com.suivialimentation.android"
@@ -18,7 +33,7 @@ android {
         applicationId = "com.suivialimentation.android"
         minSdk = 26
         targetSdk = 37
-        versionCode = 1
+        versionCode = appVersionCode
         versionName = "0.1.0-mvp"
 
         buildConfigField("String", "HA_OAUTH_CLIENT_ID", quoted(oauthClientId.get()))
@@ -35,7 +50,24 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    signingConfigs {
+        if (hasCiSigning) {
+            create("ci") {
+                storeFile = file(signingStorePath!!)
+                storePassword = signingStorePassword
+                keyAlias = signingKeyAlias
+                keyPassword = signingKeyPassword
+                storeType = "JKS"
+            }
+        }
+    }
+
     buildTypes {
+        debug {
+            if (hasCiSigning) {
+                signingConfig = signingConfigs.getByName("ci")
+            }
+        }
         release {
             isMinifyEnabled = false
         }
