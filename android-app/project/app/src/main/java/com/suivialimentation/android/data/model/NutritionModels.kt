@@ -14,6 +14,6 @@ data class NutrientSnapshot(
 
 @Serializable
 data class ServingDefinition(
-    val unitLabel: String,
+    val unitLabel: String? = null,
     val gramsEquivalent: Double? = null,
 )
