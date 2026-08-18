@@ -6,7 +6,9 @@ import androidx.lifecycle.viewModelScope
 import com.suivialimentation.android.data.features.FeatureRepository
 import com.suivialimentation.android.data.features.HistoryAnalysis
 import com.suivialimentation.android.data.features.RecipeSummary
+import com.suivialimentation.android.data.photo.PhotoFoodSuggestion
 import com.suivialimentation.android.data.repository.MealWithItems
+import com.suivialimentation.android.data.repository.NutritionRepository
 import java.time.LocalDate
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -26,6 +28,7 @@ data class FeatureHubUiState(
 
 class FeatureHubViewModel(
     private val repository: FeatureRepository,
+    private val nutritionRepository: NutritionRepository,
     private val profileId: String,
     private val localDate: String,
 ) : ViewModel() {
@@ -80,19 +83,70 @@ class FeatureHubViewModel(
         }
     }
 
+    fun createFromPhoto(suggestions: List<PhotoFoodSuggestion>, mealType: String) {
+        if (suggestions.isEmpty()) return
+        viewModelScope.launch {
+            _state.update { it.copy(busy = true, error = null, message = null, createdDraft = null) }
+            try {
+                var meal = nutritionRepository.createMeal(profileId, mealType, localDate).meal
+                val createdItems = mutableListOf<com.suivialimentation.android.data.model.MealItem>()
+                val unresolved = mutableListOf<String>()
+                for (suggestion in suggestions) {
+                    val personal = nutritionRepository.searchPersonalFoods(profileId, suggestion.label, 3).firstOrNull()
+                    val foodId = if (personal != null) {
+                        nutritionRepository.importPersonalFood(profileId, personal.sourceExternalId).food.id
+                    } else {
+                        val ciqual = nutritionRepository.searchCiqual(profileId, suggestion.label, 5).firstOrNull()
+                        if (ciqual == null) {
+                            unresolved += suggestion.label
+                            continue
+                        }
+                        nutritionRepository.importCiqualFood(profileId, ciqual.sourceExternalId).food.id
+                    }
+                    val added = nutritionRepository.addFoodToMeal(
+                        mealId = meal.id,
+                        foodId = foodId,
+                        quantityValue = suggestion.estimatedGrams,
+                        quantityUnit = "g",
+                        portionId = null,
+                        expectedMealRevision = meal.revision,
+                    )
+                    meal = added.meal
+                    createdItems += added.item
+                }
+                if (createdItems.isEmpty()) {
+                    nutritionRepository.voidMeal(meal.id, meal.revision)
+                    error("Aucun aliment reconnu n’a pu être relié à vos aliments ou à CIQUAL.")
+                }
+                _state.update {
+                    it.copy(
+                        busy = false,
+                        createdDraft = MealWithItems(meal, createdItems),
+                        message = unresolved.takeIf { names -> names.isNotEmpty() }?.let { names ->
+                            "À vérifier : ${names.joinToString()} n’a pas été ajouté automatiquement."
+                        },
+                    )
+                }
+            } catch (t: Throwable) {
+                _state.update { it.copy(busy = false, error = t.message ?: "Création depuis la photo impossible.") }
+            }
+        }
+    }
+
     fun consumeCreatedDraft() {
         _state.update { it.copy(createdDraft = null) }
     }
 
     class Factory(
         private val repository: FeatureRepository,
+        private val nutritionRepository: NutritionRepository,
         private val profileId: String,
         private val localDate: String,
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             require(modelClass.isAssignableFrom(FeatureHubViewModel::class.java))
-            return FeatureHubViewModel(repository, profileId, localDate) as T
+            return FeatureHubViewModel(repository, nutritionRepository, profileId, localDate) as T
         }
     }
 }
