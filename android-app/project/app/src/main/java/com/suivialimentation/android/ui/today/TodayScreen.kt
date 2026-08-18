@@ -343,7 +343,7 @@ private fun MealCard(
                         ) { Text("⋮") }
                         DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                             DropdownMenuItem(
-                                text = { Text("Corriger / compléter") },
+                                text = { Text("Modifier le repas") },
                                 onClick = { menuExpanded = false; onCorrectMeal(group) },
                             )
                             DropdownMenuItem(

@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import com.suivialimentation.android.data.features.HistoryAnalysis
 import com.suivialimentation.android.data.features.RecipeSummary
+import com.suivialimentation.android.data.photo.PhotoAnalysisMode
 import com.suivialimentation.android.data.photo.PhotoFoodSuggestion
 import com.suivialimentation.android.data.repository.MealWithItems
 import com.suivialimentation.android.ui.components.AppSpacing
@@ -53,7 +54,8 @@ fun FeatureHubScreen(
     featureState: FeatureHubUiState,
     photoState: PhotoMealUiState,
     todayMeals: List<MealWithItems>,
-    onAnalyzePhoto: (Uri) -> Unit,
+    onAnalyzeFoodPhoto: (Uri) -> Unit,
+    onAnalyzeMealPhoto: (Uri) -> Unit,
     onClearPhoto: () -> Unit,
     onCreateFromPhoto: (List<PhotoFoodSuggestion>, String) -> Unit,
     onSaveRecipe: (String, String) -> Unit,
@@ -67,13 +69,19 @@ fun FeatureHubScreen(
     var pendingSaveMeal by remember { mutableStateOf<MealWithItems?>(null) }
     var recipeName by remember { mutableStateOf("") }
     var pendingCameraUri by remember { mutableStateOf<Uri?>(null) }
+    var pendingCameraMode by remember { mutableStateOf(PhotoAnalysisMode.MEAL) }
+    var pendingPickerMode by remember { mutableStateOf(PhotoAnalysisMode.MEAL) }
+
+    fun analyze(uri: Uri, mode: PhotoAnalysisMode) {
+        if (mode == PhotoAnalysisMode.FOOD) onAnalyzeFoodPhoto(uri) else onAnalyzeMealPhoto(uri)
+    }
 
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri != null) onAnalyzePhoto(uri)
+        if (uri != null) analyze(uri, pendingPickerMode)
     }
     val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
         val uri = pendingCameraUri
-        if (success && uri != null) onAnalyzePhoto(uri)
+        if (success && uri != null) analyze(uri, pendingCameraMode)
         pendingCameraUri = null
     }
 
@@ -137,53 +145,76 @@ fun FeatureHubScreen(
             item {
                 Text("J1.8 · Saisie par photo", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 Text(
-                    "La photo identifie les aliments et estime leurs quantités. Les valeurs nutritionnelles sont ensuite recherchées dans vos aliments ou CIQUAL.",
+                    "Choisissez d’abord si vous photographiez un aliment isolé ou un repas. L’IA identifie ce qui est visible ; les valeurs nutritionnelles restent recherchées dans vos aliments ou CIQUAL.",
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
             item {
-                Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(AppSpacing.md), verticalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
-                        Button(
-                            onClick = {
-                                val uri = createCameraUri(context)
-                                pendingCameraUri = uri
-                                cameraLauncher.launch(uri)
-                            },
-                            enabled = !photoState.loading && !featureState.busy,
-                            modifier = Modifier.fillMaxWidth().heightIn(min = MinimumTouchTarget),
-                        ) {
-                            Text(if (photoState.loading) "Analyse en cours…" else "Prendre une photo")
-                        }
-                        OutlinedButton(
-                            onClick = { imagePicker.launch("image/*") },
-                            enabled = !photoState.loading && !featureState.busy,
-                            modifier = Modifier.fillMaxWidth().heightIn(min = MinimumTouchTarget),
-                        ) {
-                            Text("Choisir une photo")
-                        }
-                        if (photoState.loading) CircularProgressIndicator()
-                        photoState.error?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-                        photoState.title?.let { Text(it, fontWeight = FontWeight.Bold) }
-                        photoState.suggestions.forEach { suggestion ->
-                            Text("• ${suggestion.label} · ${format(suggestion.estimatedGrams)} g")
-                        }
-                        if (photoState.suggestions.isNotEmpty()) {
-                            MealTypeSelector(photoMealType) { photoMealType = it }
-                            Button(
-                                onClick = { onCreateFromPhoto(photoState.suggestions, photoMealType) },
-                                enabled = !featureState.busy,
-                                modifier = Modifier.fillMaxWidth().heightIn(min = MinimumTouchTarget),
-                            ) { Text("Créer un brouillon à vérifier") }
-                            TextButton(onClick = onClearPhoto, modifier = Modifier.fillMaxWidth()) { Text("Effacer l’analyse") }
+                PhotoModeCard(
+                    title = "Photographier un aliment",
+                    description = "Pour un fruit, un yaourt, une tranche de pain, un morceau de fromage… L’analyse cherche un seul aliment et évite d’inventer une recette.",
+                    loading = photoState.loading,
+                    busy = featureState.busy,
+                    onTakePhoto = {
+                        val uri = createCameraUri(context, "food")
+                        pendingCameraMode = PhotoAnalysisMode.FOOD
+                        pendingCameraUri = uri
+                        cameraLauncher.launch(uri)
+                    },
+                    onChoosePhoto = {
+                        pendingPickerMode = PhotoAnalysisMode.FOOD
+                        imagePicker.launch("image/*")
+                    },
+                )
+            }
+            item {
+                PhotoModeCard(
+                    title = "Photographier un repas",
+                    description = "Pour une assiette ou un repas composé. L’analyse essaie de distinguer les différents aliments réellement visibles.",
+                    loading = photoState.loading,
+                    busy = featureState.busy,
+                    onTakePhoto = {
+                        val uri = createCameraUri(context, "meal")
+                        pendingCameraMode = PhotoAnalysisMode.MEAL
+                        pendingCameraUri = uri
+                        cameraLauncher.launch(uri)
+                    },
+                    onChoosePhoto = {
+                        pendingPickerMode = PhotoAnalysisMode.MEAL
+                        imagePicker.launch("image/*")
+                    },
+                )
+            }
+            if (photoState.loading) item { CircularProgressIndicator() }
+            photoState.error?.let { error -> item { Text(error, style = MaterialTheme.typography.bodySmall) } }
+            if (photoState.title != null || photoState.suggestions.isNotEmpty()) {
+                item {
+                    Card(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(AppSpacing.md), verticalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
+                            Text(
+                                if (photoState.mode == PhotoAnalysisMode.FOOD) "Aliment reconnu" else "Repas reconnu",
+                                style = MaterialTheme.typography.labelLarge,
+                            )
+                            photoState.title?.let { Text(it, fontWeight = FontWeight.Bold) }
+                            photoState.suggestions.forEach { suggestion ->
+                                Text("• ${suggestion.label} · ${format(suggestion.estimatedGrams)} g")
+                            }
+                            if (photoState.suggestions.isNotEmpty()) {
+                                Text("À ajouter dans :", style = MaterialTheme.typography.bodySmall)
+                                MealTypeSelector(photoMealType) { photoMealType = it }
+                                Button(
+                                    onClick = { onCreateFromPhoto(photoState.suggestions, photoMealType) },
+                                    enabled = !featureState.busy,
+                                    modifier = Modifier.fillMaxWidth().heightIn(min = MinimumTouchTarget),
+                                ) { Text("Créer un brouillon à vérifier") }
+                                TextButton(onClick = onClearPhoto, modifier = Modifier.fillMaxWidth()) { Text("Effacer l’analyse") }
+                            }
                         }
                     }
                 }
             }
 
-            item {
-                Text("J1.9 · Recettes", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            }
+            item { Text("J1.9 · Recettes", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) }
             if (featureState.recipes.isEmpty()) {
                 item { Text("Aucune recette enregistrée pour le moment.", style = MaterialTheme.typography.bodySmall) }
             } else {
@@ -201,9 +232,7 @@ fun FeatureHubScreen(
                     }
                 }
             }
-            item {
-                Text("Créer une recette depuis un repas validé aujourd’hui :", style = MaterialTheme.typography.bodySmall)
-            }
+            item { Text("Créer une recette depuis un repas validé aujourd’hui :", style = MaterialTheme.typography.bodySmall) }
             items(todayMeals.filter { it.meal.status == "validated" }, key = { "save-${it.meal.id}" }) { meal ->
                 TextButton(
                     onClick = {
@@ -212,14 +241,10 @@ fun FeatureHubScreen(
                     },
                     enabled = !featureState.busy,
                     modifier = Modifier.fillMaxWidth().heightIn(min = MinimumTouchTarget),
-                ) {
-                    Text("Enregistrer ${meal.meal.mealType} comme recette")
-                }
+                ) { Text("Enregistrer ${meal.meal.mealType} comme recette") }
             }
 
-            item {
-                Text("J1.10 · Historique et analyse", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            }
+            item { Text("J1.10 · Historique et analyse", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) }
             item { HistoryCard("7 derniers jours", featureState.history7) }
             item { HistoryCard("30 derniers jours", featureState.history30) }
 
@@ -230,9 +255,36 @@ fun FeatureHubScreen(
     }
 }
 
-private fun createCameraUri(context: Context): Uri {
+@Composable
+private fun PhotoModeCard(
+    title: String,
+    description: String,
+    loading: Boolean,
+    busy: Boolean,
+    onTakePhoto: () -> Unit,
+    onChoosePhoto: () -> Unit,
+) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(AppSpacing.md), verticalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
+            Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Text(description, style = MaterialTheme.typography.bodySmall)
+            Button(
+                onClick = onTakePhoto,
+                enabled = !loading && !busy,
+                modifier = Modifier.fillMaxWidth().heightIn(min = MinimumTouchTarget),
+            ) { Text("Prendre une photo") }
+            OutlinedButton(
+                onClick = onChoosePhoto,
+                enabled = !loading && !busy,
+                modifier = Modifier.fillMaxWidth().heightIn(min = MinimumTouchTarget),
+            ) { Text("Choisir une photo") }
+        }
+    }
+}
+
+private fun createCameraUri(context: Context, prefix: String): Uri {
     val imageDir = File(context.cacheDir, "images").apply { mkdirs() }
-    val imageFile = File.createTempFile("meal_", ".jpg", imageDir)
+    val imageFile = File.createTempFile("${prefix}_", ".jpg", imageDir)
     return FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", imageFile)
 }
 
