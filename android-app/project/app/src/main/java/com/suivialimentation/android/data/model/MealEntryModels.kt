@@ -3,6 +3,19 @@ package com.suivialimentation.android.data.model
 import kotlinx.serialization.Serializable
 
 @Serializable
+data class PortionOption(
+    val id: String,
+    val label: String,
+    val unitLabel: String,
+    val gramsEquivalent: Double? = null,
+    val sourceType: String,
+    val sourceExternalId: String? = null,
+    val sourcePortionId: String? = null,
+    val sourceVersion: String? = null,
+    val sourceUrl: String? = null,
+)
+
+@Serializable
 data class CiqualFoodCandidate(
     val sourceType: String = "ciqual",
     val sourceExternalId: String,
@@ -12,12 +25,31 @@ data class CiqualFoodCandidate(
     val nutrientsPer100g: NutrientSnapshot,
     val sourceVersion: String? = null,
     val datasetDoi: String? = null,
+    val servingDefinitions: List<PortionOption> = emptyList(),
 )
 
 @Serializable
 data class CiqualSearchResponse(
     val items: List<CiqualFoodCandidate> = emptyList(),
     val sourceVersion: String? = null,
+)
+
+@Serializable
+data class PersonalFoodCandidate(
+    val sourceType: String = "personal",
+    val sourceExternalId: String,
+    val foodId: String? = null,
+    val label: String,
+    val nutritionBasis: String,
+    val nutrientsPer100g: NutrientSnapshot? = null,
+    val nutrientsPerUnit: NutrientSnapshot? = null,
+    val servingDefinitions: List<PortionOption> = emptyList(),
+    val sourceVersion: String? = null,
+)
+
+@Serializable
+data class PersonalFoodSearchResponse(
+    val items: List<PersonalFoodCandidate> = emptyList(),
 )
 
 @Serializable

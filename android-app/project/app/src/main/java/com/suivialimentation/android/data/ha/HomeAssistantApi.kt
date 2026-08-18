@@ -3,6 +3,7 @@ package com.suivialimentation.android.data.ha
 import com.suivialimentation.android.data.model.CiqualSearchResponse
 import com.suivialimentation.android.data.model.DayResponse
 import com.suivialimentation.android.data.model.MyProfileResponse
+import com.suivialimentation.android.data.model.PersonalFoodSearchResponse
 import com.suivialimentation.android.data.model.ProfileResponse
 import com.suivialimentation.android.data.model.RecentResponse
 import com.suivialimentation.android.data.model.V2Status
@@ -44,6 +45,20 @@ class HomeAssistantApi(private val ws: HomeAssistantWebSocketClient) {
     suspend fun searchCiqual(profileId: String, query: String, limit: Int = 20): CiqualSearchResponse = typed(
         "suivi_alimentation/v2/search_ciqual",
         CiqualSearchResponse.serializer(),
+        buildJsonObject {
+            put("profile_id", profileId)
+            put("query", query)
+            put("limit", limit)
+        },
+    )
+
+    suspend fun searchPersonalFoods(
+        profileId: String,
+        query: String,
+        limit: Int = 20,
+    ): PersonalFoodSearchResponse = typed(
+        "suivi_alimentation/v2/search_personal_foods",
+        PersonalFoodSearchResponse.serializer(),
         buildJsonObject {
             put("profile_id", profileId)
             put("query", query)

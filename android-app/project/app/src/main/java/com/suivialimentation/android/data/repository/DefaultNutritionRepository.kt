@@ -11,6 +11,7 @@ import com.suivialimentation.android.data.model.CreateMealResponse
 import com.suivialimentation.android.data.model.GoalVersion
 import com.suivialimentation.android.data.model.ImportFoodResponse
 import com.suivialimentation.android.data.model.NutrientSnapshot
+import com.suivialimentation.android.data.model.PersonalFoodCandidate
 import com.suivialimentation.android.data.model.ValidateMealResponse
 import com.suivialimentation.android.util.AppJson
 import java.time.LocalDate
@@ -98,12 +99,29 @@ class DefaultNutritionRepository(
     override suspend fun searchCiqual(profileId: String, query: String, limit: Int): List<CiqualFoodCandidate> =
         api.searchCiqual(profileId, query.trim(), limit).items
 
+    override suspend fun searchPersonalFoods(
+        profileId: String,
+        query: String,
+        limit: Int,
+    ): List<PersonalFoodCandidate> = api.searchPersonalFoods(profileId, query.trim(), limit).items
+
     override suspend fun importCiqualFood(profileId: String, ciqualCode: String): ImportFoodResponse {
         val result = executeMutation(
             commandType = "suivi_alimentation/v2/import_ciqual_food",
             payload = buildJsonObject {
                 put("profile_id", profileId)
                 put("ciqual_code", ciqualCode)
+            },
+        )
+        return AppJson.decodeFromJsonElement(ImportFoodResponse.serializer(), result)
+    }
+
+    override suspend fun importPersonalFood(profileId: String, legacyFoodId: String): ImportFoodResponse {
+        val result = executeMutation(
+            commandType = "suivi_alimentation/v2/import_personal_food",
+            payload = buildJsonObject {
+                put("profile_id", profileId)
+                put("legacy_food_id", legacyFoodId)
             },
         )
         return AppJson.decodeFromJsonElement(ImportFoodResponse.serializer(), result)
@@ -124,17 +142,20 @@ class DefaultNutritionRepository(
     override suspend fun addFoodToMeal(
         mealId: String,
         foodId: String,
-        grams: Double,
+        quantityValue: Double,
+        quantityUnit: String,
+        portionId: String?,
         expectedMealRevision: Long,
     ): AddFoodToMealResponse {
-        require(grams > 0.0) { "La quantité doit être supérieure à zéro." }
+        require(quantityValue > 0.0) { "La quantité doit être supérieure à zéro." }
         val result = executeMutation(
             commandType = "suivi_alimentation/v2/add_food_to_meal",
             payload = buildJsonObject {
                 put("meal_id", mealId)
                 put("food_id", foodId)
-                put("quantity_value", grams)
-                put("quantity_unit", "g")
+                put("quantity_value", quantityValue)
+                put("quantity_unit", quantityUnit)
+                portionId?.let { put("portion_id", it) }
                 put("expected_meal_revision", expectedMealRevision)
             },
         )

@@ -170,6 +170,8 @@ private fun SignedInRoot(sessionGeneration: Long, appViewModel: AppViewModel, co
             onQueryChange = mealEntryViewModel::updateQuery,
             onSearch = mealEntryViewModel::search,
             onSelectFood = mealEntryViewModel::selectFood,
+            onSelectPersonalFood = mealEntryViewModel::selectPersonalFood,
+            onSelectPortion = mealEntryViewModel::selectPortion,
             onDismissFood = mealEntryViewModel::dismissFood,
             onQuantityChange = mealEntryViewModel::updateQuantity,
             onAddFood = mealEntryViewModel::addSelectedFood,

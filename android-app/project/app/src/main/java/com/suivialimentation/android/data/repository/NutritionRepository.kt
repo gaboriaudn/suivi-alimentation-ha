@@ -9,6 +9,7 @@ import com.suivialimentation.android.data.model.ImportFoodResponse
 import com.suivialimentation.android.data.model.Meal
 import com.suivialimentation.android.data.model.MealItem
 import com.suivialimentation.android.data.model.NutrientSnapshot
+import com.suivialimentation.android.data.model.PersonalFoodCandidate
 import com.suivialimentation.android.data.model.Profile
 import com.suivialimentation.android.data.model.ValidateMealResponse
 import kotlinx.coroutines.flow.Flow
@@ -54,9 +55,18 @@ interface NutritionRepository {
     suspend fun changes(profileId: String): Flow<Unit>
 
     suspend fun searchCiqual(profileId: String, query: String, limit: Int = 20): List<CiqualFoodCandidate>
+    suspend fun searchPersonalFoods(profileId: String, query: String, limit: Int = 20): List<PersonalFoodCandidate>
     suspend fun importCiqualFood(profileId: String, ciqualCode: String): ImportFoodResponse
+    suspend fun importPersonalFood(profileId: String, legacyFoodId: String): ImportFoodResponse
     suspend fun createMeal(profileId: String, mealType: String, localDate: String): CreateMealResponse
-    suspend fun addFoodToMeal(mealId: String, foodId: String, grams: Double, expectedMealRevision: Long): AddFoodToMealResponse
+    suspend fun addFoodToMeal(
+        mealId: String,
+        foodId: String,
+        quantityValue: Double,
+        quantityUnit: String,
+        portionId: String?,
+        expectedMealRevision: Long,
+    ): AddFoodToMealResponse
     suspend fun validateMeal(mealId: String, expectedMealRevision: Long): ValidateMealResponse
 
     suspend fun executeMutation(
