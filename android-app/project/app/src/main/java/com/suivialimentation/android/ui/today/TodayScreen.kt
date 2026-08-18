@@ -136,10 +136,25 @@ private fun TodayContent(
             }
         }
         item {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                GoalCard("Calories", data.totals.energyKcal, data.activeGoal?.targets?.energyKcal, "kcal", Modifier.weight(1f))
-                GoalCard("Protéines", data.totals.proteinG, data.activeGoal?.targets?.proteinG, "g", Modifier.weight(1f))
-            }
+            Text("Bilan nutritionnel", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+        }
+        item {
+            NutrientRow(
+                left = NutrientCardData("Calories", data.totals.energyKcal, data.activeGoal?.targets?.energyKcal, "kcal"),
+                right = NutrientCardData("Protéines", data.totals.proteinG, data.activeGoal?.targets?.proteinG, "g"),
+            )
+        }
+        item {
+            NutrientRow(
+                left = NutrientCardData("Glucides", data.totals.carbsG, data.activeGoal?.targets?.carbsG, "g"),
+                right = NutrientCardData("Lipides", data.totals.fatG, data.activeGoal?.targets?.fatG, "g"),
+            )
+        }
+        item {
+            NutrientRow(
+                left = NutrientCardData("Fibres", data.totals.fiberG, data.activeGoal?.targets?.fiberG, "g"),
+                right = NutrientCardData("Sel", data.totals.saltG, data.activeGoal?.targets?.saltG, "g"),
+            )
         }
         item {
             Row(
@@ -164,13 +179,25 @@ private fun TodayContent(
     }
 }
 
+private data class NutrientCardData(val title: String, val value: Double?, val target: Double?, val unit: String)
+
+@Composable
+private fun NutrientRow(left: NutrientCardData, right: NutrientCardData) {
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        GoalCard(left.title, left.value, left.target, left.unit, Modifier.weight(1f))
+        GoalCard(right.title, right.value, right.target, right.unit, Modifier.weight(1f))
+    }
+}
+
 @Composable
 private fun GoalCard(title: String, value: Double?, target: Double?, unit: String, modifier: Modifier = Modifier) {
     Card(modifier = modifier) {
         Column(Modifier.padding(14.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(6.dp))
-            Text("${formatNumber(value)} / ${formatNumber(target)} $unit", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+            val mainValue = "${formatNumber(value)} $unit"
+            val targetValue = target?.let { " / ${formatNumber(it)} $unit" }.orEmpty()
+            Text(mainValue + targetValue, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
             if (value != null && target != null && target > 0.0) {
                 Spacer(Modifier.height(10.dp))
                 LinearProgressIndicator(progress = { (value / target).coerceIn(0.0, 1.0).toFloat() }, modifier = Modifier.fillMaxWidth())
@@ -208,6 +235,10 @@ private fun MealCard(group: MealWithItems, onContinueDraft: (MealWithItems) -> U
 private fun snapshotSummary(snapshot: NutrientSnapshot): String = buildList {
     snapshot.energyKcal?.let { add("${formatNumber(it)} kcal") }
     snapshot.proteinG?.let { add("${formatNumber(it)} g prot.") }
+    snapshot.carbsG?.let { add("${formatNumber(it)} g gluc.") }
+    snapshot.fatG?.let { add("${formatNumber(it)} g lip.") }
+    snapshot.fiberG?.let { add("${formatNumber(it)} g fibres") }
+    snapshot.saltG?.let { add("${formatNumber(it)} g sel") }
 }.joinToString(" · ").ifBlank { "Valeurs non renseignées" }
 
 private fun quantityLabel(value: Double?, unit: String?): String {

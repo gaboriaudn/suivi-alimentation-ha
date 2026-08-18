@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -56,6 +57,17 @@ fun MealEntryScreen(
         if (state.validated) onValidated()
     }
 
+    state.selectedFood?.let { selected ->
+        QuantityDialog(
+            food = selected,
+            quantity = state.quantityText,
+            busy = state.mutating,
+            onQuantityChange = onQuantityChange,
+            onAdd = onAddFood,
+            onDismiss = onDismissFood,
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -93,7 +105,7 @@ fun MealEntryScreen(
             }
 
             item {
-                Text("Rechercher dans CIQUAL", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text("Rechercher un aliment", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
                     value = state.query,
@@ -102,40 +114,63 @@ fun MealEntryScreen(
                     enabled = !state.searching && !state.mutating,
                     singleLine = true,
                     label = { Text("Aliment") },
-                    placeholder = { Text("Ex. poulet, pomme, riz") },
+                    placeholder = { Text("Ex. filet de poulet, pomme, riz") },
                 )
                 Spacer(Modifier.height(8.dp))
                 Button(
                     onClick = onSearch,
                     enabled = state.mealType != null && !state.searching && !state.mutating,
                 ) {
-                    if (state.searching) {
+                    Text(if (state.searching) "Recherche en cours…" else "Rechercher")
+                }
+                if (state.searching) {
+                    Spacer(Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         CircularProgressIndicator(modifier = Modifier.height(18.dp))
-                    } else {
-                        Text("Rechercher")
+                        Text("Recherche dans CIQUAL…", style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
 
-            state.selectedFood?.let { selected ->
+            if (!state.searching && state.searchAttempted && state.searchResults.isEmpty()) {
                 item {
-                    SelectedFoodCard(
-                        food = selected,
-                        quantity = state.quantityText,
-                        busy = state.mutating,
-                        onQuantityChange = onQuantityChange,
-                        onAdd = onAddFood,
-                        onDismiss = onDismissFood,
-                    )
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(14.dp)) {
+                            Text("Aucun résultat trouvé", fontWeight = FontWeight.SemiBold)
+                            Text(
+                                "CIQUAL n'a trouvé aucun aliment pour « ${state.searchedQuery.orEmpty()} ».",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                            Text(
+                                "Essayez un terme plus simple, par exemple « poulet » au lieu de « filet de poulet ».",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                    }
                 }
             }
 
             if (state.searchResults.isNotEmpty()) {
-                item { Text("Résultats CIQUAL", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
+                item {
+                    Column {
+                        Text("Résultats CIQUAL", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        val searched = state.searchedQuery
+                        val effective = state.effectiveSearchQuery
+                        if (!searched.isNullOrBlank() && !effective.isNullOrBlank() && !searched.equals(effective, ignoreCase = true)) {
+                            Text(
+                                "Aucun résultat exact pour « $searched ». Résultats élargis avec « $effective ».",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                    }
+                }
                 items(state.searchResults, key = { it.sourceExternalId }) { food ->
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(14.dp)) {
                             Text(food.label, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                            preparationLabel(food.label)?.let {
+                                Text(it, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                            }
                             Text("Pour 100 g : ${nutritionSummary(food.nutrientsPer100g)}", style = MaterialTheme.typography.bodySmall)
                             Text("CIQUAL ${food.sourceVersion ?: ""}".trim(), style = MaterialTheme.typography.labelSmall)
                             Spacer(Modifier.height(8.dp))
@@ -156,15 +191,9 @@ fun MealEntryScreen(
                 } else {
                     items(state.items, key = { it.id }) { item ->
                         Card(modifier = Modifier.fillMaxWidth()) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth().padding(14.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(item.labelSnapshot, fontWeight = FontWeight.Medium)
-                                    Text("${formatNumber(item.quantityValue)} ${item.quantityUnit.orEmpty()}".trim(), style = MaterialTheme.typography.bodySmall)
-                                }
+                            Column(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
+                                Text(item.labelSnapshot, fontWeight = FontWeight.Medium)
+                                Text("${formatNumber(item.quantityValue)} ${item.quantityUnit.orEmpty()}".trim(), style = MaterialTheme.typography.bodySmall)
                                 item.nutritionSnapshot?.let { Text(nutritionSummary(it), style = MaterialTheme.typography.bodySmall) }
                             }
                         }
@@ -186,7 +215,7 @@ fun MealEntryScreen(
 }
 
 @Composable
-private fun SelectedFoodCard(
+private fun QuantityDialog(
     food: CiqualFoodCandidate,
     quantity: String,
     busy: Boolean,
@@ -194,28 +223,39 @@ private fun SelectedFoodCard(
     onAdd: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(14.dp)) {
-            Text(food.label, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Text("CIQUAL ${food.sourceExternalId} · pour 100 g : ${nutritionSummary(food.nutrientsPer100g)}", style = MaterialTheme.typography.bodySmall)
-            Spacer(Modifier.height(10.dp))
-            OutlinedTextField(
-                value = quantity,
-                onValueChange = onQuantityChange,
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !busy,
-                singleLine = true,
-                label = { Text("Quantité en grammes") },
-                suffix = { Text("g") },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-            )
-            Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onAdd, enabled = !busy && quantity.isNotBlank()) { Text("Ajouter") }
-                TextButton(onClick = onDismiss, enabled = !busy) { Text("Annuler") }
+    AlertDialog(
+        onDismissRequest = { if (!busy) onDismiss() },
+        title = { Text(food.label) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                preparationLabel(food.label)?.let {
+                    Text(it, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                    Text(preparationHelp(food.label), style = MaterialTheme.typography.bodySmall)
+                }
+                Text("Valeurs CIQUAL pour 100 g : ${nutritionSummary(food.nutrientsPer100g)}", style = MaterialTheme.typography.bodySmall)
+                OutlinedTextField(
+                    value = quantity,
+                    onValueChange = onQuantityChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !busy,
+                    singleLine = true,
+                    label = { Text("Quantité consommée") },
+                    suffix = { Text("g") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                )
+                Text(
+                    "Les portions usuelles (1 œuf, 1 tranche…) seront proposées uniquement lorsqu'une conversion en grammes sourcée est disponible.",
+                    style = MaterialTheme.typography.labelSmall,
+                )
             }
-        }
-    }
+        },
+        confirmButton = {
+            Button(onClick = onAdd, enabled = !busy && quantity.isNotBlank()) {
+                if (busy) CircularProgressIndicator(modifier = Modifier.height(18.dp)) else Text("Ajouter")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text("Annuler") } },
+    )
 }
 
 private val mealTypes = listOf(
@@ -228,7 +268,26 @@ private val mealTypes = listOf(
 private fun nutritionSummary(snapshot: NutrientSnapshot): String = buildList {
     snapshot.energyKcal?.let { add("${formatNumber(it)} kcal") }
     snapshot.proteinG?.let { add("${formatNumber(it)} g prot.") }
+    snapshot.carbsG?.let { add("${formatNumber(it)} g gluc.") }
+    snapshot.fatG?.let { add("${formatNumber(it)} g lip.") }
+    snapshot.fiberG?.let { add("${formatNumber(it)} g fibres") }
+    snapshot.saltG?.let { add("${formatNumber(it)} g sel") }
 }.joinToString(" · ").ifBlank { "valeurs non renseignées" }
+
+internal fun preparationLabel(label: String): String? {
+    val value = label.lowercase(Locale.FRANCE)
+    return when {
+        Regex("\\b(cru|crue|crus|crues)\\b").containsMatchIn(value) -> "CRU · poids avant cuisson"
+        Regex("\\b(cuit|cuite|cuits|cuites|grillé|grillée|grilles|grillées|rôti|rôtie|rotie|bouilli|bouillie|poché|pochée|vapeur|à la coque)\\b").containsMatchIn(value) -> "CUIT · poids après cuisson"
+        else -> null
+    }
+}
+
+private fun preparationHelp(label: String): String = when {
+    preparationLabel(label)?.startsWith("CRU") == true -> "Saisissez le poids de la partie consommée avant cuisson."
+    preparationLabel(label)?.startsWith("CUIT") == true -> "Saisissez le poids de la partie consommée telle qu'elle est mangée, après cuisson."
+    else -> "Saisissez le poids de la partie consommée."
+}
 
 private fun formatNumber(value: Double?): String {
     if (value == null) return "—"

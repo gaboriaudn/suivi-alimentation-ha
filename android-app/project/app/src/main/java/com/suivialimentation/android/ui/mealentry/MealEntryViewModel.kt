@@ -9,6 +9,7 @@ import com.suivialimentation.android.data.model.Meal
 import com.suivialimentation.android.data.model.MealItem
 import com.suivialimentation.android.data.repository.MealWithItems
 import com.suivialimentation.android.data.repository.NutritionRepository
+import java.util.Locale
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -23,6 +24,9 @@ data class MealEntryUiState(
     val items: List<MealItem> = emptyList(),
     val query: String = "",
     val searchResults: List<CiqualFoodCandidate> = emptyList(),
+    val searchAttempted: Boolean = false,
+    val searchedQuery: String? = null,
+    val effectiveSearchQuery: String? = null,
     val selectedFood: CiqualFoodCandidate? = null,
     val quantityText: String = "",
     val searching: Boolean = false,
@@ -54,7 +58,18 @@ class MealEntryViewModel(
     }
 
     fun updateQuery(value: String) {
-        _state.update { it.copy(query = value, error = null) }
+        _state.update {
+            it.copy(
+                query = value,
+                searchResults = emptyList(),
+                searchAttempted = false,
+                searchedQuery = null,
+                effectiveSearchQuery = null,
+                selectedFood = null,
+                quantityText = "",
+                error = null,
+            )
+        }
     }
 
     fun search() {
@@ -69,10 +84,41 @@ class MealEntryViewModel(
             return
         }
         viewModelScope.launch {
-            _state.update { it.copy(searching = true, error = null) }
+            _state.update {
+                it.copy(
+                    searching = true,
+                    searchResults = emptyList(),
+                    searchAttempted = true,
+                    searchedQuery = query,
+                    effectiveSearchQuery = query,
+                    selectedFood = null,
+                    quantityText = "",
+                    error = null,
+                )
+            }
             try {
-                val results = repository.searchCiqual(current.profileId, query)
-                _state.update { it.copy(searching = false, searchResults = results, error = null) }
+                var effectiveQuery = query
+                var results = repository.searchCiqual(current.profileId, query)
+
+                if (results.isEmpty()) {
+                    for (broaderQuery in buildBroaderCiqualQueries(query)) {
+                        val broaderResults = repository.searchCiqual(current.profileId, broaderQuery)
+                        if (broaderResults.isNotEmpty()) {
+                            effectiveQuery = broaderQuery
+                            results = broaderResults
+                            break
+                        }
+                    }
+                }
+
+                _state.update {
+                    it.copy(
+                        searching = false,
+                        searchResults = results,
+                        effectiveSearchQuery = effectiveQuery,
+                        error = null,
+                    )
+                }
             } catch (t: Throwable) {
                 _state.update { it.copy(searching = false, error = userMessage(t, "Recherche CIQUAL impossible.")) }
             }
@@ -171,4 +217,23 @@ class MealEntryViewModel(
             return MealEntryViewModel(repository, profileId, localDate, initialDraft) as T
         }
     }
+}
+
+internal fun buildBroaderCiqualQueries(query: String): List<String> {
+    val normalized = query
+        .lowercase(Locale.FRANCE)
+        .replace('’', '\'')
+    val stopWords = setOf("de", "du", "des", "la", "le", "les", "un", "une", "d", "l", "au", "aux", "a")
+    val tokens = Regex("[\\p{L}\\p{Nd}]+")
+        .findAll(normalized)
+        .mapIndexed { index, match -> Triple(match.value, match.value.length, index) }
+        .filter { (token) -> token.length >= 3 && token !in stopWords }
+        .toList()
+
+    return tokens
+        .sortedWith(compareByDescending<Triple<String, Int, Int>> { it.second }.thenBy { it.third })
+        .map { it.first }
+        .distinct()
+        .filterNot { it == normalized.trim() }
+        .take(2)
 }
