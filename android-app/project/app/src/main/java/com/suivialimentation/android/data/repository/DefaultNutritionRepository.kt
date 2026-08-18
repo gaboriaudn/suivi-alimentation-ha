@@ -11,6 +11,7 @@ import com.suivialimentation.android.data.model.CreateMealResponse
 import com.suivialimentation.android.data.model.GoalVersion
 import com.suivialimentation.android.data.model.ImportFoodResponse
 import com.suivialimentation.android.data.model.NutrientSnapshot
+import com.suivialimentation.android.data.model.OffProductCandidate
 import com.suivialimentation.android.data.model.PersonalFoodCandidate
 import com.suivialimentation.android.data.model.ValidateMealResponse
 import com.suivialimentation.android.util.AppJson
@@ -122,6 +123,20 @@ class DefaultNutritionRepository(
             payload = buildJsonObject {
                 put("profile_id", profileId)
                 put("legacy_food_id", legacyFoodId)
+            },
+        )
+        return AppJson.decodeFromJsonElement(ImportFoodResponse.serializer(), result)
+    }
+
+    override suspend fun getOffProduct(profileId: String, barcode: String): OffProductCandidate =
+        api.getOffProduct(profileId, normalizeBarcode(barcode))
+
+    override suspend fun importOffFood(profileId: String, barcode: String): ImportFoodResponse {
+        val result = executeMutation(
+            commandType = "suivi_alimentation/v2/import_off_food",
+            payload = buildJsonObject {
+                put("profile_id", profileId)
+                put("barcode", normalizeBarcode(barcode))
             },
         )
         return AppJson.decodeFromJsonElement(ImportFoodResponse.serializer(), result)
@@ -265,4 +280,10 @@ class DefaultNutritionRepository(
             !localDate.isBefore(from) && (to == null || !localDate.isAfter(to))
         }
         .maxByOrNull { it.versionNumber }
+}
+
+internal fun normalizeBarcode(value: String): String {
+    val digits = value.filter(Char::isDigit)
+    require(digits.length in 8..14) { "Le code-barres doit contenir entre 8 et 14 chiffres." }
+    return digits
 }

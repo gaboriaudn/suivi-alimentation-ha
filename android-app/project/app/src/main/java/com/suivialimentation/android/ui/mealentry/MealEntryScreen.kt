@@ -35,6 +35,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.suivialimentation.android.data.model.CiqualFoodCandidate
 import com.suivialimentation.android.data.model.NutrientSnapshot
+import com.suivialimentation.android.data.model.OffProductCandidate
 import com.suivialimentation.android.data.model.PersonalFoodCandidate
 import java.text.NumberFormat
 import java.util.Locale
@@ -48,6 +49,10 @@ fun MealEntryScreen(
     onSearch: () -> Unit,
     onSelectFood: (CiqualFoodCandidate) -> Unit,
     onSelectPersonalFood: (PersonalFoodCandidate) -> Unit,
+    onBarcodeChange: (String) -> Unit,
+    onScanBarcode: () -> Unit,
+    onLookupBarcode: () -> Unit,
+    onSelectOffProduct: (OffProductCandidate) -> Unit,
     onSelectPortion: (String?) -> Unit,
     onDismissFood: () -> Unit,
     onQuantityChange: (String) -> Unit,
@@ -105,6 +110,61 @@ fun MealEntryScreen(
                 item {
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Text(state.error, modifier = Modifier.padding(12.dp))
+                    }
+                }
+            }
+
+            item {
+                Text("Scanner un produit", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = state.barcodeText,
+                    onValueChange = onBarcodeChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !state.barcodeSearching && !state.mutating,
+                    singleLine = true,
+                    label = { Text("Code-barres EAN/UPC") },
+                    placeholder = { Text("Scanner ou saisir les chiffres") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = onScanBarcode,
+                        enabled = state.mealType != null && !state.barcodeSearching && !state.mutating,
+                    ) { Text("Scanner") }
+                    TextButton(
+                        onClick = onLookupBarcode,
+                        enabled = state.mealType != null && state.barcodeText.length >= 8 &&
+                            !state.barcodeSearching && !state.mutating,
+                    ) { Text("Rechercher") }
+                }
+                if (state.barcodeSearching) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        CircularProgressIndicator(modifier = Modifier.height(18.dp))
+                        Text("Recherche dans Open Food Facts…", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+
+            state.barcodeProduct?.let { product ->
+                item {
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(14.dp)) {
+                            Text(product.label, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                            product.brand?.takeIf(String::isNotBlank)?.let {
+                                Text(it, style = MaterialTheme.typography.bodySmall)
+                            }
+                            Text("Pour 100 g : ${nutritionSummary(product.nutrientsPer100g)}", style = MaterialTheme.typography.bodySmall)
+                            product.servingDefinitions.firstOrNull()?.let {
+                                Text("Portion indiquée : ${it.label} · ${formatNumber(it.gramsEquivalent)} g", style = MaterialTheme.typography.bodySmall)
+                            }
+                            Text("Open Food Facts · ${product.barcode}", style = MaterialTheme.typography.labelSmall)
+                            Spacer(Modifier.height(8.dp))
+                            TextButton(onClick = { onSelectOffProduct(product) }, enabled = !state.mutating) {
+                                Text("Choisir")
+                            }
+                        }
                     }
                 }
             }

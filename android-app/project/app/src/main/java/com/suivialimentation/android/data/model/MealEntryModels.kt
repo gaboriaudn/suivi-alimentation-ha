@@ -53,6 +53,20 @@ data class PersonalFoodSearchResponse(
 )
 
 @Serializable
+data class OffProductCandidate(
+    val sourceType: String = "open_food_facts",
+    val sourceExternalId: String,
+    val sourceVersion: String? = null,
+    val label: String,
+    val brand: String? = null,
+    val barcode: String,
+    val nutrientsPer100g: NutrientSnapshot,
+    val servingSize: String? = null,
+    val servingQuantityG: Double? = null,
+    val servingDefinitions: List<PortionOption> = emptyList(),
+)
+
+@Serializable
 data class ImportFoodResponse(
     val ok: Boolean = true,
     val idempotent: Boolean = false,

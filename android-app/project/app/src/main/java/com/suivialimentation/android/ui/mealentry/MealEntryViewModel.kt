@@ -8,6 +8,7 @@ import com.suivialimentation.android.data.model.CiqualFoodCandidate
 import com.suivialimentation.android.data.model.Meal
 import com.suivialimentation.android.data.model.MealItem
 import com.suivialimentation.android.data.model.NutrientSnapshot
+import com.suivialimentation.android.data.model.OffProductCandidate
 import com.suivialimentation.android.data.model.PersonalFoodCandidate
 import com.suivialimentation.android.data.model.PortionOption
 import com.suivialimentation.android.data.repository.MealWithItems
@@ -45,6 +46,9 @@ data class MealEntryUiState(
     val selectedFood: FoodChoice? = null,
     val selectedPortionId: String? = null,
     val quantityText: String = "",
+    val barcodeText: String = "",
+    val barcodeProduct: OffProductCandidate? = null,
+    val barcodeSearching: Boolean = false,
     val searching: Boolean = false,
     val mutating: Boolean = false,
     val error: String? = null,
@@ -151,6 +155,52 @@ class MealEntryViewModel(
         }
     }
 
+    fun updateBarcode(value: String) {
+        _state.update {
+            it.copy(
+                barcodeText = value.filter(Char::isDigit).take(14),
+                barcodeProduct = null,
+                error = null,
+            )
+        }
+    }
+
+    fun barcodeScanned(value: String) {
+        updateBarcode(value)
+        lookupBarcode()
+    }
+
+    fun barcodeScanFailed(message: String?) {
+        _state.update { it.copy(error = message?.takeIf(String::isNotBlank) ?: "Le scanner n'a pas pu démarrer.") }
+    }
+
+    fun lookupBarcode() {
+        val current = _state.value
+        if (current.mealType == null) {
+            _state.update { it.copy(error = "Choisissez d'abord le type de repas.") }
+            return
+        }
+        val barcode = current.barcodeText.filter(Char::isDigit)
+        if (barcode.length !in 8..14) {
+            _state.update { it.copy(error = "Le code-barres doit contenir entre 8 et 14 chiffres.") }
+            return
+        }
+        viewModelScope.launch {
+            _state.update { it.copy(barcodeSearching = true, barcodeProduct = null, error = null) }
+            try {
+                val product = repository.getOffProduct(current.profileId, barcode)
+                _state.update { it.copy(barcodeSearching = false, barcodeProduct = product, error = null) }
+            } catch (t: Throwable) {
+                _state.update {
+                    it.copy(
+                        barcodeSearching = false,
+                        error = userMessage(t, "Produit introuvable dans Open Food Facts."),
+                    )
+                }
+            }
+        }
+    }
+
     fun selectFood(food: CiqualFoodCandidate) {
         _state.update {
             it.copy(
@@ -182,6 +232,23 @@ class MealEntryViewModel(
                 selectedPortionId = if (food.nutrientsPer100g == null) {
                     food.servingDefinitions.firstOrNull()?.id
                 } else null,
+                quantityText = "",
+                error = null,
+            )
+        }
+    }
+
+    fun selectOffProduct(food: OffProductCandidate) {
+        _state.update {
+            it.copy(
+                selectedFood = FoodChoice(
+                    sourceType = food.sourceType,
+                    sourceExternalId = food.sourceExternalId,
+                    label = listOfNotNull(food.label, food.brand?.takeIf(String::isNotBlank)).joinToString(" · "),
+                    nutrientsPer100g = food.nutrientsPer100g,
+                    servingDefinitions = food.servingDefinitions,
+                ),
+                selectedPortionId = null,
                 quantityText = "",
                 error = null,
             )
@@ -222,10 +289,10 @@ class MealEntryViewModel(
         viewModelScope.launch {
             _state.update { it.copy(mutating = true, error = null) }
             try {
-                val imported = if (selected.sourceType == "personal") {
-                    repository.importPersonalFood(current.profileId, selected.sourceExternalId)
-                } else {
-                    repository.importCiqualFood(current.profileId, selected.sourceExternalId)
+                val imported = when (selected.sourceType) {
+                    "personal" -> repository.importPersonalFood(current.profileId, selected.sourceExternalId)
+                    "open_food_facts" -> repository.importOffFood(current.profileId, selected.sourceExternalId)
+                    else -> repository.importCiqualFood(current.profileId, selected.sourceExternalId)
                 }
                 var meal = _state.value.draftMeal
                 if (meal == null) {
@@ -253,6 +320,8 @@ class MealEntryViewModel(
                         selectedFood = null,
                         selectedPortionId = null,
                         quantityText = "",
+                        barcodeText = "",
+                        barcodeProduct = null,
                         mutating = false,
                         error = null,
                     )

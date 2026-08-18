@@ -3,6 +3,7 @@ package com.suivialimentation.android.data.ha
 import com.suivialimentation.android.data.model.CiqualSearchResponse
 import com.suivialimentation.android.data.model.DayResponse
 import com.suivialimentation.android.data.model.MyProfileResponse
+import com.suivialimentation.android.data.model.OffProductCandidate
 import com.suivialimentation.android.data.model.PersonalFoodSearchResponse
 import com.suivialimentation.android.data.model.ProfileResponse
 import com.suivialimentation.android.data.model.RecentResponse
@@ -63,6 +64,15 @@ class HomeAssistantApi(private val ws: HomeAssistantWebSocketClient) {
             put("profile_id", profileId)
             put("query", query)
             put("limit", limit)
+        },
+    )
+
+    suspend fun getOffProduct(profileId: String, barcode: String): OffProductCandidate = typed(
+        "suivi_alimentation/v2/get_off_product",
+        OffProductCandidate.serializer(),
+        buildJsonObject {
+            put("profile_id", profileId)
+            put("barcode", barcode)
         },
     )
 
