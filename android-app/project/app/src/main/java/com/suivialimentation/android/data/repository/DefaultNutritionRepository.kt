@@ -97,6 +97,37 @@ class DefaultNutritionRepository(
     override suspend fun changes(profileId: String): Flow<Unit> =
         api.subscribeToV2Changes(profileId).map { Unit }
 
+    override suspend fun loadQuickFoods(profileId: String): QuickFoods {
+        val (profile, recent) = coroutineScope {
+            val p = async { api.getProfile(profileId) }
+            val r = async { api.getRecent(profileId) }
+            p.await() to r.await()
+        }
+        val foodsById = profile.foods.associateBy { it.id }
+        val favoriteIds = recent.favorites.mapTo(linkedSetOf()) { it.foodRefId }
+        val favorites = favoriteIds.mapNotNull { id ->
+            foodsById[id]?.let { QuickFood(it, isFavorite = true) }
+        }
+        val recents = recent.items.mapNotNull { item ->
+            val id = item.foodRefId ?: return@mapNotNull null
+            foodsById[id]?.let {
+                QuickFood(it, isFavorite = id in favoriteIds, lastUsedLocalDate = item.lastUsedLocalDate)
+            }
+        }
+        return QuickFoods(favorites, recents)
+    }
+
+    override suspend fun setFavorite(profileId: String, foodRefId: String, favorite: Boolean) {
+        executeMutation(
+            commandType = "suivi_alimentation/v2/set_favorite",
+            payload = buildJsonObject {
+                put("profile_id", profileId)
+                put("food_ref_id", foodRefId)
+                put("favorite", favorite)
+            },
+        )
+    }
+
     override suspend fun searchCiqual(profileId: String, query: String, limit: Int): List<CiqualFoodCandidate> =
         api.searchCiqual(profileId, query.trim(), limit).items
 
