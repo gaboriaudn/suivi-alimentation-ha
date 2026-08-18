@@ -210,18 +210,23 @@ private fun GoalCard(title: String, value: Double?, target: Double?, unit: Strin
 private fun MealCard(group: MealWithItems, onContinueDraft: (MealWithItems) -> Unit) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp)) {
-            Text(group.meal.label?.takeIf { it.isNotBlank() } ?: mealTypeLabel(group.meal.mealType), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(
+                group.meal.label?.takeIf { it.isNotBlank() } ?: mealTypeLabel(group.meal.mealType),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
             if (group.meal.status == "draft") Text("Brouillon", style = MaterialTheme.typography.labelMedium)
             group.meal.totalsSnapshot?.let { Text(snapshotSummary(it), style = MaterialTheme.typography.bodySmall) }
             if (group.items.isNotEmpty()) Spacer(Modifier.height(8.dp))
             group.items.forEachIndexed { index, item ->
                 if (index > 0) HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(item.labelSnapshot, style = MaterialTheme.typography.bodyLarge)
-                        Text(quantityLabel(item.quantityValue, item.quantityUnit), style = MaterialTheme.typography.bodySmall)
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(item.labelSnapshot, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                    Text(quantityLabel(item.quantityValue, item.quantityUnit), style = MaterialTheme.typography.bodySmall)
+                    item.nutritionSnapshot?.let {
+                        Spacer(Modifier.height(2.dp))
+                        Text(snapshotSummary(it), style = MaterialTheme.typography.bodySmall)
                     }
-                    item.nutritionSnapshot?.let { Text(snapshotSummary(it), style = MaterialTheme.typography.bodySmall) }
                 }
             }
             if (group.meal.status == "draft") {
