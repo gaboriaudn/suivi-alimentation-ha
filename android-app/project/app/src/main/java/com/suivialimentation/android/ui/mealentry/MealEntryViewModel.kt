@@ -13,6 +13,7 @@ import com.suivialimentation.android.data.model.PersonalFoodCandidate
 import com.suivialimentation.android.data.model.PortionOption
 import com.suivialimentation.android.data.repository.MealWithItems
 import com.suivialimentation.android.data.repository.NutritionRepository
+import com.suivialimentation.android.data.repository.QuickFood
 import java.util.Locale
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -23,6 +24,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 data class FoodChoice(
+    val foodId: String? = null,
     val sourceType: String,
     val sourceExternalId: String,
     val label: String,
@@ -49,6 +51,9 @@ data class MealEntryUiState(
     val barcodeText: String = "",
     val barcodeProduct: OffProductCandidate? = null,
     val barcodeSearching: Boolean = false,
+    val favoriteFoods: List<QuickFood> = emptyList(),
+    val recentFoods: List<QuickFood> = emptyList(),
+    val quickFoodsLoading: Boolean = true,
     val searching: Boolean = false,
     val mutating: Boolean = false,
     val error: String? = null,
@@ -71,6 +76,27 @@ class MealEntryViewModel(
         ),
     )
     val state: StateFlow<MealEntryUiState> = _state.asStateFlow()
+
+    init {
+        loadQuickFoods()
+    }
+
+    private fun loadQuickFoods() {
+        viewModelScope.launch {
+            try {
+                val quick = repository.loadQuickFoods(_state.value.profileId)
+                _state.update {
+                    it.copy(
+                        favoriteFoods = quick.favorites,
+                        recentFoods = quick.recents,
+                        quickFoodsLoading = false,
+                    )
+                }
+            } catch (_: Throwable) {
+                _state.update { it.copy(quickFoodsLoading = false) }
+            }
+        }
+    }
 
     fun selectMealType(type: String) {
         if (_state.value.draftMeal != null) return
@@ -255,6 +281,51 @@ class MealEntryViewModel(
         }
     }
 
+    fun selectQuickFood(quick: QuickFood) {
+        val food = quick.food
+        _state.update {
+            it.copy(
+                selectedFood = FoodChoice(
+                    foodId = food.id,
+                    sourceType = food.sourceType,
+                    sourceExternalId = food.sourceExternalId.orEmpty(),
+                    label = food.label,
+                    nutrientsPer100g = food.nutrientsPer100g,
+                    nutrientsPerUnit = food.nutrientsPerUnit,
+                    servingDefinitions = food.servingDefinitions,
+                ),
+                selectedPortionId = if (food.nutrientsPer100g == null) {
+                    food.servingDefinitions.firstOrNull()?.id
+                } else null,
+                quantityText = "",
+                error = null,
+            )
+        }
+    }
+
+    fun toggleFavorite(quick: QuickFood) {
+        val target = !quick.isFavorite
+        viewModelScope.launch {
+            try {
+                repository.setFavorite(_state.value.profileId, quick.food.id, target)
+                val transform: (QuickFood) -> QuickFood = { item ->
+                    if (item.food.id == quick.food.id) item.copy(isFavorite = target) else item
+                }
+                _state.update { current ->
+                    val recents = current.recentFoods.map(transform)
+                    val favorites = if (target) {
+                        (current.favoriteFoods + quick.copy(isFavorite = true)).distinctBy { it.food.id }
+                    } else {
+                        current.favoriteFoods.filterNot { it.food.id == quick.food.id }
+                    }
+                    current.copy(favoriteFoods = favorites, recentFoods = recents, error = null)
+                }
+            } catch (t: Throwable) {
+                _state.update { it.copy(error = userMessage(t, "Impossible de modifier le favori.")) }
+            }
+        }
+    }
+
     fun selectPortion(portionId: String?) {
         val selected = _state.value.selectedFood ?: return
         if (portionId == null && selected.nutrientsPer100g == null) return
@@ -289,10 +360,10 @@ class MealEntryViewModel(
         viewModelScope.launch {
             _state.update { it.copy(mutating = true, error = null) }
             try {
-                val imported = when (selected.sourceType) {
-                    "personal" -> repository.importPersonalFood(current.profileId, selected.sourceExternalId)
-                    "open_food_facts" -> repository.importOffFood(current.profileId, selected.sourceExternalId)
-                    else -> repository.importCiqualFood(current.profileId, selected.sourceExternalId)
+                val foodId = selected.foodId ?: when (selected.sourceType) {
+                    "personal" -> repository.importPersonalFood(current.profileId, selected.sourceExternalId).food.id
+                    "open_food_facts" -> repository.importOffFood(current.profileId, selected.sourceExternalId).food.id
+                    else -> repository.importCiqualFood(current.profileId, selected.sourceExternalId).food.id
                 }
                 var meal = _state.value.draftMeal
                 if (meal == null) {
@@ -301,7 +372,7 @@ class MealEntryViewModel(
                 }
                 val added = repository.addFoodToMeal(
                     mealId = meal.id,
-                    foodId = imported.food.id,
+                    foodId = foodId,
                     quantityValue = quantity,
                     quantityUnit = portion?.unitLabel ?: "g",
                     portionId = portion?.id,
