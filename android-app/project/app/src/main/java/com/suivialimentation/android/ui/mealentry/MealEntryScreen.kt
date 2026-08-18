@@ -1,5 +1,6 @@
 package com.suivialimentation.android.ui.mealentry
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -8,6 +9,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -28,17 +30,24 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.suivialimentation.android.data.model.CiqualFoodCandidate
+import com.suivialimentation.android.data.model.MealItem
 import com.suivialimentation.android.data.model.NutrientSnapshot
 import com.suivialimentation.android.data.model.OffProductCandidate
-import com.suivialimentation.android.data.model.MealItem
 import com.suivialimentation.android.data.model.PersonalFoodCandidate
 import com.suivialimentation.android.data.repository.QuickFood
+import com.suivialimentation.android.ui.components.AppSpacing
+import com.suivialimentation.android.ui.components.MinimumTouchTarget
+import com.suivialimentation.android.ui.components.SectionHeader
 import java.text.NumberFormat
 import java.util.Locale
 
@@ -73,6 +82,10 @@ fun MealEntryScreen(
     onBack: () -> Unit,
     onValidated: () -> Unit,
 ) {
+    var showManualBarcode by remember { mutableStateOf(false) }
+    var favoritesExpanded by remember { mutableStateOf(false) }
+    var recentsExpanded by remember { mutableStateOf(false) }
+
     LaunchedEffect(state.validated) {
         if (state.validated) onValidated()
     }
@@ -96,22 +109,23 @@ fun MealEntryScreen(
             onDismissRequest = { if (!state.mutating) onCancelExistingMealChoice() },
             title = { Text("$type déjà enregistré") },
             text = {
-                Text("Voulez-vous compléter le repas existant ou conserver deux repas séparés ?")
-            },
-            confirmButton = {
-                Button(onClick = onComplementExistingMeal, enabled = !state.mutating) {
-                    Text("Compléter l’existant")
+                Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
+                    Text("Un repas de ce type existe déjà aujourd’hui.")
+                    Button(
+                        onClick = onComplementExistingMeal,
+                        enabled = !state.mutating,
+                        modifier = Modifier.fillMaxWidth().heightIn(min = MinimumTouchTarget),
+                    ) { Text("Ajouter au repas existant") }
+                    TextButton(
+                        onClick = onCreateSeparateMeal,
+                        enabled = !state.mutating,
+                        modifier = Modifier.fillMaxWidth().heightIn(min = MinimumTouchTarget),
+                    ) { Text("Créer un autre repas") }
                 }
             },
+            confirmButton = {},
             dismissButton = {
-                Column {
-                    TextButton(onClick = onCreateSeparateMeal, enabled = !state.mutating) {
-                        Text("Créer un autre repas")
-                    }
-                    TextButton(onClick = onCancelExistingMealChoice, enabled = !state.mutating) {
-                        Text("Annuler")
-                    }
-                }
+                TextButton(onClick = onCancelExistingMealChoice, enabled = !state.mutating) { Text("Annuler") }
             },
         )
     }
@@ -124,6 +138,7 @@ fun MealEntryScreen(
                 OutlinedTextField(
                     value = state.editQuantityText,
                     onValueChange = onEditQuantityChange,
+                    modifier = Modifier.fillMaxWidth(),
                     enabled = !state.mutating,
                     singleLine = true,
                     label = { Text("Quantité") },
@@ -137,163 +152,175 @@ fun MealEntryScreen(
                     enabled = !state.mutating && state.editQuantityText.isNotBlank(),
                 ) { Text("Enregistrer") }
             },
-            dismissButton = {
-                TextButton(onClick = onDismissItemEdit, enabled = !state.mutating) { Text("Annuler") }
-            },
+            dismissButton = { TextButton(onClick = onDismissItemEdit, enabled = !state.mutating) { Text("Annuler") } },
         )
     }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(if (state.draftMeal == null) "Ajouter un repas" else "Brouillon du repas") },
-                navigationIcon = { TextButton(onClick = onBack) { Text("Retour") } },
+                title = { Text(if (state.draftMeal == null) "Ajouter un repas" else "Modifier le repas") },
+                navigationIcon = {
+                    TextButton(onClick = onBack, modifier = Modifier.heightIn(min = MinimumTouchTarget)) { Text("‹ Retour") }
+                },
             )
         },
     ) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(AppSpacing.lg),
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.md),
         ) {
             item {
-                Text("Type de repas", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.height(8.dp))
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(mealTypes, key = { it.first }) { (value, label) ->
-                        FilterChip(
-                            selected = state.mealType == value,
-                            onClick = { onSelectMealType(value) },
-                            enabled = state.draftMeal == null && !state.mutating,
-                            label = { Text(label) },
-                        )
-                    }
-                }
+                SectionHeader("Type de repas")
+                Spacer(Modifier.height(AppSpacing.sm))
+                MealTypeSelector(
+                    selected = state.mealType,
+                    enabled = state.draftMeal == null && !state.mutating,
+                    onSelect = onSelectMealType,
+                )
             }
 
             if (state.error != null) {
                 item {
                     Card(modifier = Modifier.fillMaxWidth()) {
-                        Text(state.error, modifier = Modifier.padding(12.dp))
+                        Text(state.error, modifier = Modifier.padding(AppSpacing.md), style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
 
-            if (state.favoriteFoods.isNotEmpty()) {
+            if (state.draftMeal != null) {
                 item {
-                    Text("Favoris", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                }
-                items(state.favoriteFoods, key = { "favorite-${it.food.id}" }) { quick ->
-                    QuickFoodCard(quick, onSelectQuickFood, onToggleFavorite, state.mutating)
-                }
-            }
-
-            val nonFavoriteRecents = state.recentFoods.filterNot { it.isFavorite }
-            if (nonFavoriteRecents.isNotEmpty()) {
-                item {
-                    Text("Récents", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                }
-                items(nonFavoriteRecents, key = { "recent-${it.food.id}" }) { quick ->
-                    QuickFoodCard(quick, onSelectQuickFood, onToggleFavorite, state.mutating)
+                    DraftSummary(
+                        items = state.items,
+                        busy = state.mutating,
+                        onEditItem = onEditItem,
+                        onRemoveItem = onRemoveItem,
+                        onValidate = onValidate,
+                    )
                 }
             }
 
             item {
-                Text("Scanner un produit", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = state.barcodeText,
-                    onValueChange = onBarcodeChange,
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = !state.barcodeSearching && !state.mutating,
-                    singleLine = true,
-                    label = { Text("Code-barres EAN/UPC") },
-                    placeholder = { Text("Scanner ou saisir les chiffres") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                )
-                Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
-                        onClick = onScanBarcode,
-                        enabled = state.mealType != null && !state.barcodeSearching && !state.mutating,
-                    ) { Text("Scanner") }
-                    TextButton(
-                        onClick = onLookupBarcode,
-                        enabled = state.mealType != null && state.barcodeText.length >= 8 &&
-                            !state.barcodeSearching && !state.mutating,
-                    ) { Text("Rechercher") }
-                }
-                if (state.barcodeSearching) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        CircularProgressIndicator(modifier = Modifier.height(18.dp))
-                        Text("Recherche dans Open Food Facts…", style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-            }
-
-            state.barcodeProduct?.let { product ->
-                item {
-                    Card(modifier = Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(14.dp)) {
-                            Text(product.label, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-                            product.brand?.takeIf(String::isNotBlank)?.let {
-                                Text(it, style = MaterialTheme.typography.bodySmall)
-                            }
-                            Text("Pour 100 g : ${nutritionSummary(product.nutrientsPer100g)}", style = MaterialTheme.typography.bodySmall)
-                            product.servingDefinitions.firstOrNull()?.let {
-                                Text("Portion indiquée : ${it.label} · ${formatNumber(it.gramsEquivalent)} g", style = MaterialTheme.typography.bodySmall)
-                            }
-                            Text("Open Food Facts · ${product.barcode}", style = MaterialTheme.typography.labelSmall)
-                            Spacer(Modifier.height(8.dp))
-                            TextButton(onClick = { onSelectOffProduct(product) }, enabled = !state.mutating) {
-                                Text("Choisir")
-                            }
-                        }
-                    }
-                }
-            }
-
-            item {
-                Text("Rechercher un aliment", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.height(8.dp))
+                SectionHeader(if (state.draftMeal == null) "Ajouter un aliment" else "Ajouter un autre aliment")
+                Spacer(Modifier.height(AppSpacing.sm))
                 OutlinedTextField(
                     value = state.query,
                     onValueChange = onQueryChange,
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !state.searching && !state.mutating,
                     singleLine = true,
-                    label = { Text("Aliment") },
-                    placeholder = { Text("Ex. filet de poulet, pomme, riz") },
+                    label = { Text("Rechercher un aliment") },
+                    placeholder = { Text("Ex. poulet, pomme, riz") },
                 )
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(AppSpacing.sm))
                 Button(
                     onClick = onSearch,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = MinimumTouchTarget),
                     enabled = state.mealType != null && !state.searching && !state.mutating,
                 ) {
-                    Text(if (state.searching) "Recherche en cours…" else "Rechercher")
+                    if (state.searching) CircularProgressIndicator(modifier = Modifier.height(18.dp))
+                    else Text("Rechercher")
                 }
                 if (state.searching) {
-                    Spacer(Modifier.height(8.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        CircularProgressIndicator(modifier = Modifier.height(18.dp))
-                        Text("Recherche dans Mes aliments et CIQUAL…", style = MaterialTheme.typography.bodySmall)
-                    }
+                    Spacer(Modifier.height(AppSpacing.sm))
+                    Text("Recherche dans Mes aliments et CIQUAL…", style = MaterialTheme.typography.bodySmall)
                 }
             }
 
-            if (!state.searching && state.searchAttempted &&
-                state.searchResults.isEmpty() && state.personalSearchResults.isEmpty()
-            ) {
+            item {
+                Button(
+                    onClick = onScanBarcode,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = MinimumTouchTarget),
+                    enabled = state.mealType != null && !state.barcodeSearching && !state.mutating,
+                ) { Text("Scanner un produit") }
+                TextButton(
+                    onClick = { showManualBarcode = !showManualBarcode },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = MinimumTouchTarget),
+                    enabled = !state.barcodeSearching && !state.mutating,
+                ) { Text(if (showManualBarcode) "Masquer la saisie du code-barres" else "Saisir un code-barres") }
+            }
+
+            if (showManualBarcode) {
+                item {
+                    OutlinedTextField(
+                        value = state.barcodeText,
+                        onValueChange = onBarcodeChange,
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !state.barcodeSearching && !state.mutating,
+                        singleLine = true,
+                        label = { Text("Code-barres EAN/UPC") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    )
+                    Spacer(Modifier.height(AppSpacing.sm))
+                    Button(
+                        onClick = onLookupBarcode,
+                        modifier = Modifier.fillMaxWidth().heightIn(min = MinimumTouchTarget),
+                        enabled = state.mealType != null && state.barcodeText.length >= 8 && !state.barcodeSearching && !state.mutating,
+                    ) { Text("Rechercher le produit") }
+                }
+            }
+
+            if (state.barcodeSearching) {
+                item { Text("Recherche dans Open Food Facts…", style = MaterialTheme.typography.bodySmall) }
+            }
+
+            state.barcodeProduct?.let { product ->
+                item {
+                    ResultCard(
+                        title = product.label,
+                        subtitle = buildList {
+                            product.brand?.takeIf(String::isNotBlank)?.let(::add)
+                            add("Pour 100 g : ${nutritionSummary(product.nutrientsPer100g)}")
+                            product.servingDefinitions.firstOrNull()?.let {
+                                add("Portion : ${it.label}${it.gramsEquivalent?.let { grams -> " · ${formatNumber(grams)} g" }.orEmpty()}")
+                            }
+                            add("Open Food Facts · ${product.barcode}")
+                        }.joinToString("\n"),
+                        enabled = !state.mutating,
+                        onSelect = { onSelectOffProduct(product) },
+                    )
+                }
+            }
+
+            if (state.favoriteFoods.isNotEmpty()) {
+                item {
+                    QuickFoodsSection(
+                        title = "Favoris",
+                        foods = if (favoritesExpanded) state.favoriteFoods else state.favoriteFoods.take(3),
+                        totalCount = state.favoriteFoods.size,
+                        expanded = favoritesExpanded,
+                        busy = state.mutating,
+                        onSelect = onSelectQuickFood,
+                        onToggleFavorite = onToggleFavorite,
+                        onToggleExpanded = { favoritesExpanded = !favoritesExpanded },
+                    )
+                }
+            }
+
+            val nonFavoriteRecents = state.recentFoods.filterNot { it.isFavorite }
+            if (nonFavoriteRecents.isNotEmpty()) {
+                item {
+                    QuickFoodsSection(
+                        title = "Récents",
+                        foods = if (recentsExpanded) nonFavoriteRecents else nonFavoriteRecents.take(3),
+                        totalCount = nonFavoriteRecents.size,
+                        expanded = recentsExpanded,
+                        busy = state.mutating,
+                        onSelect = onSelectQuickFood,
+                        onToggleFavorite = onToggleFavorite,
+                        onToggleExpanded = { recentsExpanded = !recentsExpanded },
+                    )
+                }
+            }
+
+            if (!state.searching && state.searchAttempted && state.searchResults.isEmpty() && state.personalSearchResults.isEmpty()) {
                 item {
                     Card(modifier = Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(14.dp)) {
+                        Column(Modifier.padding(AppSpacing.md)) {
                             Text("Aucun résultat trouvé", fontWeight = FontWeight.SemiBold)
                             Text(
-                                "Aucun aliment personnel ou CIQUAL trouvé pour « ${state.searchedQuery.orEmpty()} ».",
-                                style = MaterialTheme.typography.bodySmall,
-                            )
-                            Text(
-                                "Essayez un terme plus simple, par exemple « poulet » au lieu de « filet de poulet ».",
+                                "Aucun aliment trouvé pour « ${state.searchedQuery.orEmpty()} ». Essayez un terme plus simple.",
                                 style = MaterialTheme.typography.bodySmall,
                             )
                         }
@@ -302,105 +329,56 @@ fun MealEntryScreen(
             }
 
             if (state.personalSearchResults.isNotEmpty()) {
-                item {
-                    Text(
-                        "Mes aliments",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                }
+                item { SectionHeader("Mes aliments") }
                 items(state.personalSearchResults, key = { it.sourceExternalId }) { food ->
-                    Card(modifier = Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(14.dp)) {
-                            Text(food.label, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-                            food.nutrientsPer100g?.let {
-                                Text("Pour 100 g : ${nutritionSummary(it)}", style = MaterialTheme.typography.bodySmall)
-                            }
+                    ResultCard(
+                        title = food.label,
+                        subtitle = buildList {
+                            food.nutrientsPer100g?.let { add("Pour 100 g : ${nutritionSummary(it)}") }
                             food.nutrientsPerUnit?.let {
                                 val unit = food.servingDefinitions.firstOrNull()?.unitLabel ?: "unité"
-                                Text("Pour 1 $unit : ${nutritionSummary(it)}", style = MaterialTheme.typography.bodySmall)
+                                add("Pour 1 $unit : ${nutritionSummary(it)}")
                             }
-                            Text("Article personnel Home Assistant", style = MaterialTheme.typography.labelSmall)
-                            Spacer(Modifier.height(8.dp))
-                            TextButton(onClick = { onSelectPersonalFood(food) }, enabled = !state.mutating) {
-                                Text("Choisir")
-                            }
-                        }
-                    }
+                            add("Aliment personnel Home Assistant")
+                        }.joinToString("\n"),
+                        enabled = !state.mutating,
+                        onSelect = { onSelectPersonalFood(food) },
+                    )
                 }
             }
 
             if (state.searchResults.isNotEmpty()) {
                 item {
                     Column {
-                        Text("Résultats CIQUAL", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        SectionHeader("Résultats CIQUAL")
                         val searched = state.searchedQuery
                         val effective = state.effectiveSearchQuery
                         if (!searched.isNullOrBlank() && !effective.isNullOrBlank() && !searched.equals(effective, ignoreCase = true)) {
-                            Text(
-                                "Aucun résultat exact pour « $searched ». Résultats élargis avec « $effective ».",
-                                style = MaterialTheme.typography.bodySmall,
-                            )
+                            Text("Résultats élargis avec « $effective ».", style = MaterialTheme.typography.bodySmall)
                         }
                     }
                 }
                 items(state.searchResults, key = { it.sourceExternalId }) { food ->
-                    Card(modifier = Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(14.dp)) {
-                            Text(food.label, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-                            preparationLabel(food.label)?.let {
-                                Text(it, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
-                            }
-                            Text("Pour 100 g : ${nutritionSummary(food.nutrientsPer100g)}", style = MaterialTheme.typography.bodySmall)
-                            Text("CIQUAL ${food.sourceVersion ?: ""}".trim(), style = MaterialTheme.typography.labelSmall)
-                            Spacer(Modifier.height(8.dp))
-                            TextButton(onClick = { onSelectFood(food) }, enabled = !state.mutating) { Text("Choisir") }
-                        }
-                    }
+                    val prep = preparationLabel(food.label)
+                    ResultCard(
+                        title = food.label,
+                        subtitle = buildList {
+                            prep?.let(::add)
+                            add("Pour 100 g : ${nutritionSummary(food.nutrientsPer100g)}")
+                            add("CIQUAL ${food.sourceVersion ?: ""}".trim())
+                        }.joinToString("\n"),
+                        enabled = !state.mutating,
+                        onSelect = { onSelectFood(food) },
+                    )
                 }
             }
 
-            if (state.draftMeal != null) {
+            if (state.draftMeal == null) {
                 item {
-                    HorizontalDivider()
-                    Spacer(Modifier.height(4.dp))
-                    Text("Aliments du brouillon", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                }
-                if (state.items.isEmpty()) {
-                    item { Text("Le brouillon ne contient encore aucun aliment.") }
-                } else {
-                    items(state.items, key = { it.id }) { item ->
-                        Card(modifier = Modifier.fillMaxWidth()) {
-                            Column(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
-                                Text(item.labelSnapshot, fontWeight = FontWeight.Medium)
-                                Text("${formatNumber(item.quantityValue)} ${item.quantityUnit.orEmpty()}".trim(), style = MaterialTheme.typography.bodySmall)
-                                item.gramsEquivalent?.let {
-                                    Text("Équivalent : ${formatNumber(it)} g", style = MaterialTheme.typography.labelSmall)
-                                }
-                                item.nutritionSnapshot?.let { Text(nutritionSummary(it), style = MaterialTheme.typography.bodySmall) }
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    TextButton(
-                                        onClick = { onEditItem(item) },
-                                        enabled = !state.mutating && item.foodRefId != null,
-                                    ) { Text("Modifier la quantité") }
-                                    TextButton(
-                                        onClick = { onRemoveItem(item) },
-                                        enabled = !state.mutating,
-                                    ) { Text("Supprimer") }
-                                }
-                            }
-                        }
-                    }
-                }
-                item {
-                    Button(
-                        onClick = onValidate,
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = state.items.isNotEmpty() && !state.mutating,
-                    ) {
-                        if (state.mutating) CircularProgressIndicator(modifier = Modifier.height(18.dp))
-                        else Text("Valider le repas")
-                    }
+                    Text(
+                        "Le repas sera créé seulement après l’ajout du premier aliment.",
+                        style = MaterialTheme.typography.labelSmall,
+                    )
                 }
             }
         }
@@ -408,27 +386,138 @@ fun MealEntryScreen(
 }
 
 @Composable
-private fun QuickFoodCard(
-    quick: QuickFood,
-    onSelect: (QuickFood) -> Unit,
-    onToggleFavorite: (QuickFood) -> Unit,
-    busy: Boolean,
-) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(14.dp)) {
-            Text(quick.food.label, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-            quick.food.brand?.takeIf { it.isNotBlank() }?.let {
-                Text(it, style = MaterialTheme.typography.bodySmall)
-            }
-            quick.lastUsedLocalDate?.let {
-                Text("Utilisé le $it", style = MaterialTheme.typography.labelSmall)
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = { onSelect(quick) }, enabled = !busy) { Text("Choisir") }
-                TextButton(onClick = { onToggleFavorite(quick) }, enabled = !busy) {
-                    Text(if (quick.isFavorite) "Retirer des favoris" else "Ajouter aux favoris")
+private fun MealTypeSelector(selected: String?, enabled: Boolean, onSelect: (String) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
+        mealTypes.chunked(2).forEach { row ->
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
+                row.forEach { (value, label) ->
+                    FilterChip(
+                        selected = selected == value,
+                        onClick = { onSelect(value) },
+                        modifier = Modifier.weight(1f).heightIn(min = MinimumTouchTarget),
+                        enabled = enabled,
+                        label = { Text(label, maxLines = 2) },
+                    )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun DraftSummary(
+    items: List<MealItem>,
+    busy: Boolean,
+    onEditItem: (MealItem) -> Unit,
+    onRemoveItem: (MealItem) -> Unit,
+    onValidate: () -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(AppSpacing.md), verticalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
+            SectionHeader("Repas en cours")
+            if (items.isEmpty()) {
+                Text("Aucun aliment dans ce repas.", style = MaterialTheme.typography.bodySmall)
+            } else {
+                items.forEachIndexed { index, item ->
+                    if (index > 0) HorizontalDivider()
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(AppSpacing.sm),
+                    ) {
+                        Column(
+                            modifier = Modifier.weight(1f).clickable(enabled = !busy && item.foodRefId != null) { onEditItem(item) },
+                        ) {
+                            Text(item.labelSnapshot, fontWeight = FontWeight.Medium)
+                            Text(
+                                "${formatNumber(item.quantityValue)} ${item.quantityUnit.orEmpty()}".trim(),
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                            item.nutritionSnapshot?.let { Text(primaryNutritionSummary(it), style = MaterialTheme.typography.labelSmall) }
+                        }
+                        TextButton(
+                            onClick = { onEditItem(item) },
+                            enabled = !busy && item.foodRefId != null,
+                            modifier = Modifier.heightIn(min = MinimumTouchTarget),
+                        ) { Text("Modifier") }
+                        TextButton(
+                            onClick = { onRemoveItem(item) },
+                            enabled = !busy,
+                            modifier = Modifier.heightIn(min = MinimumTouchTarget),
+                        ) { Text("Suppr.") }
+                    }
+                }
+            }
+            Button(
+                onClick = onValidate,
+                modifier = Modifier.fillMaxWidth().heightIn(min = MinimumTouchTarget),
+                enabled = items.isNotEmpty() && !busy,
+            ) {
+                if (busy) CircularProgressIndicator(modifier = Modifier.height(18.dp))
+                else Text("Enregistrer le repas")
+            }
+        }
+    }
+}
+
+@Composable
+private fun QuickFoodsSection(
+    title: String,
+    foods: List<QuickFood>,
+    totalCount: Int,
+    expanded: Boolean,
+    busy: Boolean,
+    onSelect: (QuickFood) -> Unit,
+    onToggleFavorite: (QuickFood) -> Unit,
+    onToggleExpanded: () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.xs)) {
+        SectionHeader(title)
+        foods.forEach { quick ->
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = MinimumTouchTarget)
+                        .clickable(enabled = !busy) { onSelect(quick) }
+                        .padding(start = AppSpacing.md, end = AppSpacing.xs, top = AppSpacing.sm, bottom = AppSpacing.sm),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(AppSpacing.sm),
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(quick.food.label, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                        quick.food.brand?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                    }
+                    TextButton(
+                        onClick = { onToggleFavorite(quick) },
+                        enabled = !busy,
+                        modifier = Modifier.heightIn(min = MinimumTouchTarget),
+                    ) { Text(if (quick.isFavorite) "★" else "☆") }
+                    Text("›", style = MaterialTheme.typography.titleLarge)
+                }
+            }
+        }
+        if (totalCount > 3) {
+            TextButton(onClick = onToggleExpanded, modifier = Modifier.fillMaxWidth().heightIn(min = MinimumTouchTarget)) {
+                Text(if (expanded) "Réduire" else "Voir les $totalCount")
+            }
+        }
+    }
+}
+
+@Composable
+private fun ResultCard(title: String, subtitle: String, enabled: Boolean, onSelect: () -> Unit) {
+    Card(modifier = Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onSelect)) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(AppSpacing.md),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(AppSpacing.sm),
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                Text(subtitle, style = MaterialTheme.typography.bodySmall)
+            }
+            Text("›", style = MaterialTheme.typography.titleLarge)
         }
     }
 }
@@ -449,40 +538,33 @@ private fun QuantityDialog(
         onDismissRequest = { if (!busy) onDismiss() },
         title = { Text(food.label) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
                 preparationLabel(food.label)?.let {
                     Text(it, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
                     Text(preparationHelp(food.label), style = MaterialTheme.typography.bodySmall)
                 }
-                food.nutrientsPer100g?.let {
-                    Text("Valeurs pour 100 g : ${nutritionSummary(it)}", style = MaterialTheme.typography.bodySmall)
-                }
-                food.nutrientsPerUnit?.let {
-                    Text("Valeurs par unité : ${nutritionSummary(it)}", style = MaterialTheme.typography.bodySmall)
-                }
-                Text("Mode de saisie", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (food.nutrientsPer100g != null) {
-                        item {
+                food.nutrientsPer100g?.let { Text("Pour 100 g : ${nutritionSummary(it)}", style = MaterialTheme.typography.bodySmall) }
+                food.nutrientsPerUnit?.let { Text("Par unité : ${nutritionSummary(it)}", style = MaterialTheme.typography.bodySmall) }
+                if (food.servingDefinitions.isNotEmpty() || food.nutrientsPer100g != null) {
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
+                        if (food.nutrientsPer100g != null) {
+                            item {
+                                FilterChip(
+                                    selected = selectedPortionId == null,
+                                    onClick = { onSelectPortion(null) },
+                                    enabled = !busy,
+                                    label = { Text("Grammes") },
+                                )
+                            }
+                        }
+                        items(food.servingDefinitions, key = { it.id }) { portion ->
                             FilterChip(
-                                selected = selectedPortionId == null,
-                                onClick = { onSelectPortion(null) },
+                                selected = selectedPortionId == portion.id,
+                                onClick = { onSelectPortion(portion.id) },
                                 enabled = !busy,
-                                label = { Text("Grammes") },
+                                label = { Text(portion.label) },
                             )
                         }
-                    }
-                    items(food.servingDefinitions, key = { it.id }) { portion ->
-                        FilterChip(
-                            selected = selectedPortionId == portion.id,
-                            onClick = { onSelectPortion(portion.id) },
-                            enabled = !busy,
-                            label = {
-                                Text(
-                                    portion.label + (portion.gramsEquivalent?.let { " · ${formatNumber(it)} g" } ?: "")
-                                )
-                            },
-                        )
                     }
                 }
                 OutlinedTextField(
@@ -495,16 +577,9 @@ private fun QuantityDialog(
                     suffix = { Text(if (selectedPortion == null) "g" else selectedPortion.unitLabel) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 )
-                Text(
-                    when {
-                        selectedPortion?.gramsEquivalent != null ->
-                            "Conversion effectuée par Home Assistant depuis ${selectedPortion.sourceType}."
-                        selectedPortion != null ->
-                            "Portion personnelle : les nutriments par unité sont utilisés sans poids inventé."
-                        else -> "Le poids en grammes est envoyé à Home Assistant."
-                    },
-                    style = MaterialTheme.typography.labelSmall,
-                )
+                selectedPortion?.gramsEquivalent?.let {
+                    Text("${selectedPortion.label} = ${formatNumber(it)} g · source ${selectedPortion.sourceType}", style = MaterialTheme.typography.labelSmall)
+                }
             }
         },
         confirmButton = {
@@ -532,6 +607,11 @@ private fun nutritionSummary(snapshot: NutrientSnapshot): String = buildList {
     snapshot.saltG?.let { add("${formatNumber(it)} g sel") }
 }.joinToString(" · ").ifBlank { "valeurs non renseignées" }
 
+private fun primaryNutritionSummary(snapshot: NutrientSnapshot): String = buildList {
+    snapshot.energyKcal?.let { add("${formatNumber(it)} kcal") }
+    snapshot.proteinG?.let { add("${formatNumber(it)} g prot.") }
+}.joinToString(" · ").ifBlank { "Valeurs non renseignées" }
+
 internal fun preparationLabel(label: String): String? {
     val value = label.lowercase(Locale.FRANCE)
     return when {
@@ -542,9 +622,9 @@ internal fun preparationLabel(label: String): String? {
 }
 
 private fun preparationHelp(label: String): String = when {
-    preparationLabel(label)?.startsWith("CRU") == true -> "Saisissez le poids de la partie consommée avant cuisson."
-    preparationLabel(label)?.startsWith("CUIT") == true -> "Saisissez le poids de la partie consommée telle qu'elle est mangée, après cuisson."
-    else -> "Saisissez le poids de la partie consommée."
+    preparationLabel(label)?.startsWith("CRU") == true -> "Saisissez le poids avant cuisson."
+    preparationLabel(label)?.startsWith("CUIT") == true -> "Saisissez le poids tel qu'il est consommé, après cuisson."
+    else -> "Saisissez la quantité consommée."
 }
 
 private fun formatNumber(value: Double?): String {
