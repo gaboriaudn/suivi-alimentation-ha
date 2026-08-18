@@ -58,6 +58,9 @@ data class MealEntryUiState(
     val mutating: Boolean = false,
     val error: String? = null,
     val validated: Boolean = false,
+    val pendingExistingMeal: MealWithItems? = null,
+    val editingItem: MealItem? = null,
+    val editQuantityText: String = "",
 )
 
 class MealEntryViewModel(
@@ -65,6 +68,7 @@ class MealEntryViewModel(
     profileId: String,
     localDate: String,
     initialDraft: MealWithItems?,
+    private val existingMeals: List<MealWithItems>,
 ) : ViewModel() {
     private val _state = MutableStateFlow(
         MealEntryUiState(
@@ -100,7 +104,41 @@ class MealEntryViewModel(
 
     fun selectMealType(type: String) {
         if (_state.value.draftMeal != null) return
-        _state.update { it.copy(mealType = type, error = null) }
+        val existing = matchingMealForType(existingMeals, type)
+        _state.update {
+            it.copy(mealType = type, pendingExistingMeal = existing, error = null)
+        }
+    }
+
+    fun complementExistingMeal() {
+        val existing = _state.value.pendingExistingMeal ?: return
+        viewModelScope.launch {
+            _state.update { it.copy(mutating = true, error = null) }
+            try {
+                val correction = repository.startMealCorrection(existing.meal.id)
+                _state.update {
+                    it.copy(
+                        draftMeal = correction.meal,
+                        items = correction.items,
+                        pendingExistingMeal = null,
+                        mutating = false,
+                        error = null,
+                    )
+                }
+            } catch (t: Throwable) {
+                _state.update {
+                    it.copy(mutating = false, error = userMessage(t, "Impossible de compléter ce repas."))
+                }
+            }
+        }
+    }
+
+    fun createSeparateMeal() {
+        _state.update { it.copy(pendingExistingMeal = null, error = null) }
+    }
+
+    fun cancelExistingMealChoice() {
+        _state.update { it.copy(mealType = null, pendingExistingMeal = null, error = null) }
     }
 
     fun updateQuery(value: String) {
@@ -344,6 +382,89 @@ class MealEntryViewModel(
         _state.update { it.copy(quantityText = accepted, error = null) }
     }
 
+    fun editItem(item: MealItem) {
+        if (item.foodRefId == null) {
+            _state.update { it.copy(error = "Cette ancienne entrée doit être supprimée puis ajoutée de nouveau.") }
+            return
+        }
+        _state.update {
+            it.copy(
+                editingItem = item,
+                editQuantityText = item.quantityValue?.toString().orEmpty(),
+                error = null,
+            )
+        }
+    }
+
+    fun updateEditQuantity(value: String) {
+        val accepted = value.filter { it.isDigit() || it == ',' || it == '.' }
+        _state.update { it.copy(editQuantityText = accepted, error = null) }
+    }
+
+    fun dismissItemEdit() {
+        _state.update { it.copy(editingItem = null, editQuantityText = "", error = null) }
+    }
+
+    fun confirmItemEdit() {
+        val current = _state.value
+        val item = current.editingItem ?: return
+        val meal = current.draftMeal ?: return
+        val quantity = current.editQuantityText.replace(',', '.').toDoubleOrNull()
+        if (quantity == null || quantity <= 0.0) {
+            _state.update { it.copy(error = "Indiquez une quantité supérieure à zéro.") }
+            return
+        }
+        viewModelScope.launch {
+            _state.update { it.copy(mutating = true, error = null) }
+            try {
+                val updated = repository.updateMealItemQuantity(
+                    itemId = item.id,
+                    quantityValue = quantity,
+                    quantityUnit = item.quantityUnit ?: "g",
+                    portionId = item.portionId,
+                    expectedItemRevision = item.revision,
+                    expectedMealRevision = meal.revision,
+                )
+                _state.update {
+                    it.copy(
+                        draftMeal = updated.meal,
+                        items = it.items.map { existing -> if (existing.id == item.id) updated.item else existing },
+                        editingItem = null,
+                        editQuantityText = "",
+                        mutating = false,
+                        error = null,
+                    )
+                }
+            } catch (t: Throwable) {
+                _state.update { it.copy(mutating = false, error = userMessage(t, "Impossible de modifier la quantité.")) }
+            }
+        }
+    }
+
+    fun removeItem(item: MealItem) {
+        val meal = _state.value.draftMeal ?: return
+        viewModelScope.launch {
+            _state.update { it.copy(mutating = true, error = null) }
+            try {
+                val removed = repository.removeMealItem(
+                    itemId = item.id,
+                    expectedItemRevision = item.revision,
+                    expectedMealRevision = meal.revision,
+                )
+                _state.update {
+                    it.copy(
+                        draftMeal = removed.meal,
+                        items = it.items.filterNot { existing -> existing.id == item.id },
+                        mutating = false,
+                        error = null,
+                    )
+                }
+            } catch (t: Throwable) {
+                _state.update { it.copy(mutating = false, error = userMessage(t, "Impossible de supprimer l’aliment.")) }
+            }
+        }
+    }
+
     fun addSelectedFood() {
         val current = _state.value
         val selected = current.selectedFood ?: return
@@ -434,11 +555,12 @@ class MealEntryViewModel(
         private val profileId: String,
         private val localDate: String,
         private val initialDraft: MealWithItems?,
+        private val existingMeals: List<MealWithItems> = emptyList(),
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             require(modelClass.isAssignableFrom(MealEntryViewModel::class.java))
-            return MealEntryViewModel(repository, profileId, localDate, initialDraft) as T
+            return MealEntryViewModel(repository, profileId, localDate, initialDraft, existingMeals) as T
         }
     }
 }
@@ -461,3 +583,10 @@ internal fun buildBroaderCiqualQueries(query: String): List<String> {
         .filterNot { it == normalized.trim() }
         .take(2)
 }
+
+internal fun matchingMealForType(
+    meals: List<MealWithItems>,
+    mealType: String,
+): MealWithItems? = meals
+    .filter { it.meal.status == "validated" && it.meal.mealType == mealType }
+    .maxByOrNull { it.meal.createdAt }

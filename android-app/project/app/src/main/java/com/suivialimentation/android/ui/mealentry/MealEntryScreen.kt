@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import com.suivialimentation.android.data.model.CiqualFoodCandidate
 import com.suivialimentation.android.data.model.NutrientSnapshot
 import com.suivialimentation.android.data.model.OffProductCandidate
+import com.suivialimentation.android.data.model.MealItem
 import com.suivialimentation.android.data.model.PersonalFoodCandidate
 import com.suivialimentation.android.data.repository.QuickFood
 import java.text.NumberFormat
@@ -60,6 +61,14 @@ fun MealEntryScreen(
     onDismissFood: () -> Unit,
     onQuantityChange: (String) -> Unit,
     onAddFood: () -> Unit,
+    onComplementExistingMeal: () -> Unit,
+    onCreateSeparateMeal: () -> Unit,
+    onCancelExistingMealChoice: () -> Unit,
+    onEditItem: (MealItem) -> Unit,
+    onEditQuantityChange: (String) -> Unit,
+    onConfirmItemEdit: () -> Unit,
+    onDismissItemEdit: () -> Unit,
+    onRemoveItem: (MealItem) -> Unit,
     onValidate: () -> Unit,
     onBack: () -> Unit,
     onValidated: () -> Unit,
@@ -78,6 +87,59 @@ fun MealEntryScreen(
             onQuantityChange = onQuantityChange,
             onAdd = onAddFood,
             onDismiss = onDismissFood,
+        )
+    }
+
+    state.pendingExistingMeal?.let { existing ->
+        val type = mealTypes.firstOrNull { it.first == existing.meal.mealType }?.second ?: existing.meal.mealType
+        AlertDialog(
+            onDismissRequest = { if (!state.mutating) onCancelExistingMealChoice() },
+            title = { Text("$type déjà enregistré") },
+            text = {
+                Text("Voulez-vous compléter le repas existant ou conserver deux repas séparés ?")
+            },
+            confirmButton = {
+                Button(onClick = onComplementExistingMeal, enabled = !state.mutating) {
+                    Text("Compléter l’existant")
+                }
+            },
+            dismissButton = {
+                Column {
+                    TextButton(onClick = onCreateSeparateMeal, enabled = !state.mutating) {
+                        Text("Créer un autre repas")
+                    }
+                    TextButton(onClick = onCancelExistingMealChoice, enabled = !state.mutating) {
+                        Text("Annuler")
+                    }
+                }
+            },
+        )
+    }
+
+    state.editingItem?.let { item ->
+        AlertDialog(
+            onDismissRequest = { if (!state.mutating) onDismissItemEdit() },
+            title = { Text("Modifier ${item.labelSnapshot}") },
+            text = {
+                OutlinedTextField(
+                    value = state.editQuantityText,
+                    onValueChange = onEditQuantityChange,
+                    enabled = !state.mutating,
+                    singleLine = true,
+                    label = { Text("Quantité") },
+                    suffix = { Text(item.quantityUnit.orEmpty()) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = onConfirmItemEdit,
+                    enabled = !state.mutating && state.editQuantityText.isNotBlank(),
+                ) { Text("Enregistrer") }
+            },
+            dismissButton = {
+                TextButton(onClick = onDismissItemEdit, enabled = !state.mutating) { Text("Annuler") }
+            },
         )
     }
 
@@ -316,6 +378,16 @@ fun MealEntryScreen(
                                     Text("Équivalent : ${formatNumber(it)} g", style = MaterialTheme.typography.labelSmall)
                                 }
                                 item.nutritionSnapshot?.let { Text(nutritionSummary(it), style = MaterialTheme.typography.bodySmall) }
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    TextButton(
+                                        onClick = { onEditItem(item) },
+                                        enabled = !state.mutating && item.foodRefId != null,
+                                    ) { Text("Modifier la quantité") }
+                                    TextButton(
+                                        onClick = { onRemoveItem(item) },
+                                        enabled = !state.mutating,
+                                    ) { Text("Supprimer") }
+                                }
                             }
                         }
                     }

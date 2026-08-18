@@ -142,3 +142,72 @@ class NutritionCommands:
         result["meal"] = meal
         result["provenance"] = provenance
         return result
+
+    async def async_update_food_meal_item(
+        self, *, item_id: str, quantity_value: float, quantity_unit: str,
+        operation_id: str, expected_item_revision: int,
+        expected_meal_revision: int, portion_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Recalculate one draft food item from its authoritative food reference."""
+        replay = self._repository.operation_event(operation_id)
+        if replay and replay.get("operation") == "update_food_quantity":
+            current_store = self._repository.snapshot()
+            persisted_item = current_store["mealItemsById"].get(replay.get("entityId"))
+            persisted_meal = current_store["mealsById"].get(replay.get("mealId"))
+            if persisted_item is not None and persisted_meal is not None:
+                result = self._repository.idempotent_result()
+                result["item"] = persisted_item
+                result["meal"] = persisted_meal
+                return result
+
+        candidate = self._repository.snapshot()
+        store_revision = int(candidate["meta"].get("storeRevision", 0))
+        item = candidate["mealItemsById"].get(item_id)
+        meal = candidate["mealsById"].get(item.get("mealId")) if item else None
+        food = candidate["foodReferencesById"].get(item.get("foodRefId")) if item else None
+        if item is None or meal is None or food is None:
+            raise ValueError("Meal item or food not found")
+        if meal.get("status") != "draft":
+            raise ValueError("Only draft meals can be edited")
+        if int(item.get("revision", 1)) != expected_item_revision:
+            raise RevisionConflict("Meal item revision conflict")
+        if int(meal.get("revision", 1)) != expected_meal_revision:
+            raise RevisionConflict("Meal revision conflict")
+        if float(quantity_value) <= 0:
+            raise ValueError("Quantity must be greater than zero")
+
+        snapshot, grams, method, portion = self._nutrition.build_consumed_snapshot(
+            food, float(quantity_value), quantity_unit, portion_id
+        )
+        provenance = self._nutrition.build_calculation_provenance(
+            food, method, float(quantity_value), quantity_unit, grams, portion
+        )
+        candidate["nutritionProvenanceById"][provenance["id"]] = provenance
+        now = utc_now_iso()
+        item["quantityValue"] = float(quantity_value)
+        item["quantityUnit"] = portion.get("unitLabel") if portion else quantity_unit
+        item["gramsEquivalent"] = grams
+        item["nutritionSnapshot"] = deepcopy(snapshot)
+        item["provenanceId"] = provenance["id"]
+        item["portionId"] = portion.get("id") if portion else None
+        item["portionLabelSnapshot"] = portion.get("label") if portion else None
+        item["revision"] = int(item.get("revision", 1)) + 1
+        item["updatedAt"] = now
+        meal["revision"] = int(meal.get("revision", 1)) + 1
+        meal["updatedAt"] = now
+        result = await self._repository.async_replace_shadow_snapshot(
+            candidate,
+            operation_id=operation_id,
+            expected_store_revision=store_revision,
+            event={
+                "entityType": "mealItem", "entityId": item_id,
+                "operation": "update_food_quantity",
+                "entityRevision": item["revision"],
+                "profileId": meal["profileId"], "mealId": meal["id"],
+                "mealRevision": meal["revision"],
+            },
+        )
+        result["item"] = item
+        result["meal"] = meal
+        result["provenance"] = provenance
+        return result

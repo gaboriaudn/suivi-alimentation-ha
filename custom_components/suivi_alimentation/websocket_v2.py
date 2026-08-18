@@ -57,6 +57,8 @@ def async_setup(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, websocket_v2_get_recent)
     websocket_api.async_register_command(hass, websocket_v2_set_favorite)
     websocket_api.async_register_command(hass, websocket_v2_duplicate_meal)
+    websocket_api.async_register_command(hass, websocket_v2_start_meal_correction)
+    websocket_api.async_register_command(hass, websocket_v2_void_meal)
     websocket_api.async_register_command(hass, websocket_v2_create_meal)
     websocket_api.async_register_command(hass, websocket_v2_add_meal_item)
     websocket_api.async_register_command(hass, websocket_v2_update_meal_item)
@@ -282,6 +284,58 @@ async def websocket_v2_duplicate_meal(hass, connection, msg) -> None:
             source_meal_id=msg["source_meal_id"],
             target_local_date=msg["target_local_date"],
             operation_id=msg["operation_id"],
+        )
+        connection.send_result(msg["id"], result)
+    except Exception as err:
+        _send_repo_error(connection, msg["id"], err)
+
+
+@websocket_api.websocket_command({
+    "type": f"{DOMAIN}/v2/start_meal_correction",
+    "source_meal_id": str,
+    "operation_id": str,
+})
+@websocket_api.async_response
+async def websocket_v2_start_meal_correction(hass, connection, msg) -> None:
+    repository = _repository(hass)
+    if repository is None:
+        connection.send_error(msg["id"], "not_ready", "Repository unavailable")
+        return
+    source = repository.snapshot()["mealsById"].get(msg["source_meal_id"])
+    if source is None or _require_profile(connection, repository, source.get("profileId")) is None:
+        connection.send_error(msg["id"], "unauthorized", "Meal unavailable")
+        return
+    try:
+        result = await repository.async_start_meal_correction(
+            source_meal_id=msg["source_meal_id"],
+            operation_id=msg["operation_id"],
+        )
+        connection.send_result(msg["id"], result)
+    except Exception as err:
+        _send_repo_error(connection, msg["id"], err)
+
+
+@websocket_api.websocket_command({
+    "type": f"{DOMAIN}/v2/void_meal",
+    "meal_id": str,
+    "operation_id": str,
+    "expected_meal_revision": int,
+})
+@websocket_api.async_response
+async def websocket_v2_void_meal(hass, connection, msg) -> None:
+    repository = _repository(hass)
+    if repository is None:
+        connection.send_error(msg["id"], "not_ready", "Repository unavailable")
+        return
+    meal = repository.snapshot()["mealsById"].get(msg["meal_id"])
+    if meal is None or _require_profile(connection, repository, meal.get("profileId")) is None:
+        connection.send_error(msg["id"], "unauthorized", "Meal unavailable")
+        return
+    try:
+        result = await repository.async_void_meal(
+            meal_id=msg["meal_id"],
+            operation_id=msg["operation_id"],
+            expected_meal_revision=msg["expected_meal_revision"],
         )
         connection.send_result(msg["id"], result)
     except Exception as err:

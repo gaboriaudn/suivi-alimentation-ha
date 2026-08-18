@@ -15,6 +15,9 @@ import com.suivialimentation.android.data.model.NutrientSnapshot
 import com.suivialimentation.android.data.model.OffProductCandidate
 import com.suivialimentation.android.data.model.PersonalFoodCandidate
 import com.suivialimentation.android.data.model.ValidateMealResponse
+import com.suivialimentation.android.data.model.UpdateMealItemResponse
+import com.suivialimentation.android.data.model.RemoveMealItemResponse
+import com.suivialimentation.android.data.model.VoidMealResponse
 import com.suivialimentation.android.util.AppJson
 import java.time.LocalDate
 import java.time.ZoneId
@@ -62,11 +65,18 @@ class DefaultNutritionRepository(
         val zone = runCatching { ZoneId.of(profile.defaultTimeZone) }.getOrDefault(ZoneId.systemDefault())
         val localDate = LocalDate.now(zone)
 
+        return loadDay(profile.id, localDate.toString())
+    }
+
+    override suspend fun loadDay(profileId: String, localDate: String): TodayData {
+        val parsedLocalDate = LocalDate.parse(localDate)
+
         val (profileResponse, dayResponse) = coroutineScope {
-            val p = async { api.getProfile(profile.id) }
-            val d = async { api.getDay(profile.id, localDate.toString()) }
+            val p = async { api.getProfile(profileId) }
+            val d = async { api.getDay(profileId, localDate) }
             p.await() to d.await()
         }
+        val profile = profileResponse.profile
 
         revisionTracker.recordStoreRevision(profileResponse.storeRevision)
         revisionTracker.recordStoreRevision(dayResponse.storeRevision)
@@ -83,8 +93,8 @@ class DefaultNutritionRepository(
 
         return TodayData(
             profile = profile,
-            localDate = localDate.toString(),
-            activeGoal = selectGoal(profileResponse.goalVersions, localDate),
+            localDate = localDate,
+            activeGoal = selectGoal(profileResponse.goalVersions, parsedLocalDate),
             totals = dayResponse.history?.totals ?: NutrientSnapshot(
                 energyKcal = 0.0,
                 proteinG = 0.0,
@@ -229,6 +239,64 @@ class DefaultNutritionRepository(
             },
         )
         return AppJson.decodeFromJsonElement(DuplicateMealResponse.serializer(), result)
+    }
+
+    override suspend fun startMealCorrection(sourceMealId: String): DuplicateMealResponse {
+        val result = executeMutation(
+            commandType = "suivi_alimentation/v2/start_meal_correction",
+            payload = buildJsonObject { put("source_meal_id", sourceMealId) },
+        )
+        return AppJson.decodeFromJsonElement(DuplicateMealResponse.serializer(), result)
+    }
+
+    override suspend fun updateMealItemQuantity(
+        itemId: String,
+        quantityValue: Double,
+        quantityUnit: String,
+        portionId: String?,
+        expectedItemRevision: Long,
+        expectedMealRevision: Long,
+    ): UpdateMealItemResponse {
+        require(quantityValue > 0.0) { "La quantité doit être supérieure à zéro." }
+        val result = executeMutation(
+            commandType = "suivi_alimentation/v2/update_food_meal_item",
+            payload = buildJsonObject {
+                put("item_id", itemId)
+                put("quantity_value", quantityValue)
+                put("quantity_unit", quantityUnit)
+                portionId?.let { put("portion_id", it) }
+                put("expected_item_revision", expectedItemRevision)
+                put("expected_meal_revision", expectedMealRevision)
+            },
+        )
+        return AppJson.decodeFromJsonElement(UpdateMealItemResponse.serializer(), result)
+    }
+
+    override suspend fun removeMealItem(
+        itemId: String,
+        expectedItemRevision: Long,
+        expectedMealRevision: Long,
+    ): RemoveMealItemResponse {
+        val result = executeMutation(
+            commandType = "suivi_alimentation/v2/remove_meal_item",
+            payload = buildJsonObject {
+                put("item_id", itemId)
+                put("expected_item_revision", expectedItemRevision)
+                put("expected_meal_revision", expectedMealRevision)
+            },
+        )
+        return AppJson.decodeFromJsonElement(RemoveMealItemResponse.serializer(), result)
+    }
+
+    override suspend fun voidMeal(mealId: String, expectedMealRevision: Long): VoidMealResponse {
+        val result = executeMutation(
+            commandType = "suivi_alimentation/v2/void_meal",
+            payload = buildJsonObject {
+                put("meal_id", mealId)
+                put("expected_meal_revision", expectedMealRevision)
+            },
+        )
+        return AppJson.decodeFromJsonElement(VoidMealResponse.serializer(), result)
     }
 
     override suspend fun executeMutation(

@@ -54,6 +54,7 @@ def async_setup(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, import_personal_food)
     websocket_api.async_register_command(hass, import_off_food)
     websocket_api.async_register_command(hass, add_food_to_meal)
+    websocket_api.async_register_command(hass, update_food_meal_item)
     websocket_api.async_register_command(hass, nutrition_status)
 
 
@@ -230,6 +231,43 @@ async def add_food_to_meal(hass, connection, msg) -> None:
             operation_id=msg["operation_id"],
             expected_meal_revision=msg["expected_meal_revision"],
             portion_id=msg.get("portion_id"),
+        )
+        connection.send_result(msg["id"], result)
+    except Exception as err:
+        _error(connection, msg["id"], err)
+
+
+@websocket_api.websocket_command({
+    "type": f"{DOMAIN}/v2/update_food_meal_item",
+    "item_id": str,
+    "quantity_value": float,
+    "quantity_unit": str,
+    "operation_id": str,
+    "expected_item_revision": int,
+    "expected_meal_revision": int,
+    vol.Optional("portion_id"): str,
+})
+@websocket_api.async_response
+async def update_food_meal_item(hass, connection, msg) -> None:
+    repository, _, commands = _services(hass)
+    if repository is None or commands is None:
+        connection.send_error(msg["id"], "not_ready", "Nutrition v2 not initialized")
+        return
+    data = repository.snapshot()
+    item = data.get("mealItemsById", {}).get(msg["item_id"])
+    meal = data.get("mealsById", {}).get(item.get("mealId")) if item else None
+    if not meal or not _profile_access(connection, repository, meal["profileId"]):
+        connection.send_error(msg["id"], "unauthorized", "Meal unavailable")
+        return
+    try:
+        result = await commands.async_update_food_meal_item(
+            item_id=msg["item_id"],
+            quantity_value=msg["quantity_value"],
+            quantity_unit=msg["quantity_unit"],
+            portion_id=msg.get("portion_id"),
+            operation_id=msg["operation_id"],
+            expected_item_revision=msg["expected_item_revision"],
+            expected_meal_revision=msg["expected_meal_revision"],
         )
         connection.send_result(msg["id"], result)
     except Exception as err:

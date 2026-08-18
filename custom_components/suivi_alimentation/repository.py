@@ -44,6 +44,43 @@ def _sum_snapshots(items: list[dict[str, Any]]) -> dict[str, float | None]:
     return totals
 
 
+def _rebuild_day(
+    candidate: dict[str, Any],
+    *,
+    profile_id: str,
+    local_date: str,
+    now: str,
+) -> dict[str, Any] | None:
+    """Rebuild one daily aggregate from active validated meals only."""
+    key = f"{profile_id}|{local_date}"
+    current = candidate["dailyHistoryByProfileDate"].get(key)
+    active_meals = sorted(
+        (
+            meal for meal in candidate["mealsById"].values()
+            if meal.get("profileId") == profile_id
+            and meal.get("consumptionLocalDate") == local_date
+            and meal.get("status") == "validated"
+        ),
+        key=lambda meal: (meal.get("consumedAtUtc") or "", meal.get("createdAt") or ""),
+    )
+    if not active_meals:
+        candidate["dailyHistoryByProfileDate"].pop(key, None)
+        return None
+    day = {
+        "profileId": profile_id,
+        "localDate": local_date,
+        "mealIds": [meal["id"] for meal in active_meals],
+        "validatedMealCount": len(active_meals),
+        "totals": _sum_snapshots(
+            [{"nutritionSnapshot": meal.get("totalsSnapshot")} for meal in active_meals]
+        ),
+        "revision": int((current or {}).get("revision", 0)) + 1,
+        "updatedAt": now,
+    }
+    candidate["dailyHistoryByProfileDate"][key] = day
+    return day
+
+
 class SuiviAlimentationRepository:
     """Only writer allowed to mutate Store v2."""
 
@@ -418,6 +455,141 @@ class SuiviAlimentationRepository:
         result["items"] = duplicated_items
         return result
 
+    async def async_start_meal_correction(
+        self,
+        *,
+        source_meal_id: str,
+        operation_id: str,
+    ) -> dict[str, Any]:
+        """Create an editable replacement draft while preserving the validated source."""
+        replay = self.operation_event(operation_id)
+        if replay and replay.get("operation") == "start_correction":
+            current = self.snapshot()
+            meal = current["mealsById"].get(replay.get("entityId"))
+            if meal is not None:
+                result = self.idempotent_result()
+                result["meal"] = meal
+                result["items"] = [
+                    item for item in current["mealItemsById"].values()
+                    if item.get("mealId") == meal["id"]
+                ]
+                return result
+
+        candidate = self.snapshot()
+        source = candidate["mealsById"].get(source_meal_id)
+        if source is None or source.get("status") != "validated":
+            raise RepositoryValidationError("Validated source meal not found")
+        if source.get("supersededByMealId"):
+            raise RepositoryValidationError("Meal already superseded")
+        source_items = sorted(
+            (
+                item for item in candidate["mealItemsById"].values()
+                if item.get("mealId") == source_meal_id
+            ),
+            key=lambda item: int(item.get("position", 0)),
+        )
+        if not source_items:
+            raise RepositoryValidationError("Source meal is empty")
+
+        now = utc_now_iso()
+        meal_id = str(uuid.uuid4())
+        meal = {
+            **deepcopy(source),
+            "id": meal_id,
+            "status": "draft",
+            "totalsSnapshot": None,
+            "origin": "correction",
+            "supersedesMealId": source_meal_id,
+            "supersededByMealId": None,
+            "createdAt": now,
+            "updatedAt": now,
+            "validatedAt": None,
+            "voidedAt": None,
+            "revision": 1,
+        }
+        candidate["mealsById"][meal_id] = meal
+        copied_items = []
+        for source_item in source_items:
+            item = {
+                **deepcopy(source_item),
+                "id": str(uuid.uuid4()),
+                "mealId": meal_id,
+                "createdFromProposalId": None,
+                "revision": 1,
+                "createdAt": now,
+                "updatedAt": now,
+            }
+            candidate["mealItemsById"][item["id"]] = item
+            copied_items.append(item)
+
+        result = await self._commit(
+            candidate,
+            operation_id=operation_id,
+            event={
+                "entityType": "meal",
+                "entityId": meal_id,
+                "operation": "start_correction",
+                "entityRevision": 1,
+                "profileId": source["profileId"],
+                "sourceMealId": source_meal_id,
+            },
+        )
+        result["meal"] = meal
+        result["items"] = copied_items
+        return result
+
+    async def async_void_meal(
+        self,
+        *,
+        meal_id: str,
+        operation_id: str,
+        expected_meal_revision: int,
+    ) -> dict[str, Any]:
+        """Archive a validated meal and rebuild its daily aggregate."""
+        replay = self.operation_event(operation_id)
+        if replay and replay.get("operation") == "void":
+            current = self.snapshot()
+            meal = current["mealsById"].get(replay.get("entityId"))
+            if meal is not None:
+                result = self.idempotent_result()
+                result["meal"] = meal
+                key = f"{meal['profileId']}|{meal['consumptionLocalDate']}"
+                result["dailyHistory"] = current["dailyHistoryByProfileDate"].get(key)
+                return result
+
+        candidate = self.snapshot()
+        meal = candidate["mealsById"].get(meal_id)
+        if meal is None or meal.get("status") != "validated":
+            raise RepositoryValidationError("Validated meal not found")
+        if int(meal.get("revision", 1)) != expected_meal_revision:
+            raise RevisionConflict("Meal revision conflict")
+        now = utc_now_iso()
+        meal["status"] = "voided"
+        meal["voidedAt"] = now
+        meal["updatedAt"] = now
+        meal["revision"] = int(meal.get("revision", 1)) + 1
+        day = _rebuild_day(
+            candidate,
+            profile_id=meal["profileId"],
+            local_date=meal["consumptionLocalDate"],
+            now=now,
+        )
+        result = await self._commit(
+            candidate,
+            operation_id=operation_id,
+            event={
+                "entityType": "meal",
+                "entityId": meal_id,
+                "operation": "void",
+                "entityRevision": meal["revision"],
+                "profileId": meal["profileId"],
+                "localDate": meal["consumptionLocalDate"],
+            },
+        )
+        result["meal"] = meal
+        result["dailyHistory"] = day
+        return result
+
     async def async_add_meal_item(
         self,
         *,
@@ -606,6 +778,15 @@ class SuiviAlimentationRepository:
                 raise RepositoryValidationError("Every item needs a nutrition snapshot")
             if not item.get("provenanceId"):
                 raise RepositoryValidationError("Every item needs a provenanceId")
+        source = None
+        source_id = meal.get("supersedesMealId")
+        if source_id:
+            source = candidate["mealsById"].get(source_id)
+            if source is None or source.get("status") != "validated":
+                raise RepositoryValidationError("Superseded meal is no longer active")
+            if source.get("supersededByMealId"):
+                raise RepositoryValidationError("Superseded meal already has a replacement")
+
         totals = _sum_snapshots(items)
         now = utc_now_iso()
         meal["totalsSnapshot"] = totals
@@ -613,34 +794,19 @@ class SuiviAlimentationRepository:
         meal["validatedAt"] = now
         meal["updatedAt"] = now
         meal["revision"] = int(meal.get("revision", 1)) + 1
+        if source is not None:
+            source["status"] = "voided"
+            source["voidedAt"] = now
+            source["supersededByMealId"] = meal_id
+            source["updatedAt"] = now
+            source["revision"] = int(source.get("revision", 1)) + 1
 
-        dkey = f"{meal['profileId']}|{meal['consumptionLocalDate']}"
-        day = candidate["dailyHistoryByProfileDate"].get(dkey)
-        if day is None:
-            day = {
-                "profileId": meal["profileId"],
-                "localDate": meal["consumptionLocalDate"],
-                "mealIds": [],
-                "validatedMealCount": 0,
-                "totals": _nutrients_zero(),
-                "revision": 0,
-                "updatedAt": now,
-            }
-        if meal_id not in day["mealIds"]:
-            day["mealIds"].append(meal_id)
-        active_meals = [
-            candidate["mealsById"][mid]
-            for mid in day["mealIds"]
-            if mid in candidate["mealsById"]
-            and candidate["mealsById"][mid].get("status") == "validated"
-        ]
-        day["validatedMealCount"] = len(active_meals)
-        day["totals"] = _sum_snapshots(
-            [{"nutritionSnapshot": m.get("totalsSnapshot")} for m in active_meals]
+        day = _rebuild_day(
+            candidate,
+            profile_id=meal["profileId"],
+            local_date=meal["consumptionLocalDate"],
+            now=now,
         )
-        day["revision"] = int(day.get("revision", 0)) + 1
-        day["updatedAt"] = now
-        candidate["dailyHistoryByProfileDate"][dkey] = day
 
         result = await self._commit(
             candidate,
@@ -656,4 +822,6 @@ class SuiviAlimentationRepository:
         )
         result["meal"] = meal
         result["dailyHistory"] = day
+        if source is not None:
+            result["supersededMeal"] = source
         return result
