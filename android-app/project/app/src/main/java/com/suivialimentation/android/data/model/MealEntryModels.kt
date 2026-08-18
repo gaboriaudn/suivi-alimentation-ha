@@ -108,3 +108,29 @@ data class DuplicateMealResponse(
     val meal: Meal,
     val items: List<MealItem> = emptyList(),
 )
+
+@Serializable
+data class UpdateMealItemResponse(
+    val ok: Boolean = true,
+    val idempotent: Boolean = false,
+    val storeRevision: Long,
+    val item: MealItem,
+    val meal: Meal,
+)
+
+@Serializable
+data class RemoveMealItemResponse(
+    val ok: Boolean = true,
+    val idempotent: Boolean = false,
+    val storeRevision: Long,
+    val meal: Meal,
+)
+
+@Serializable
+data class VoidMealResponse(
+    val ok: Boolean = true,
+    val idempotent: Boolean = false,
+    val storeRevision: Long,
+    val meal: Meal,
+    val dailyHistory: DayHistory? = null,
+)

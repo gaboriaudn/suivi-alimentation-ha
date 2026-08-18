@@ -15,6 +15,9 @@ import com.suivialimentation.android.data.model.OffProductCandidate
 import com.suivialimentation.android.data.model.PersonalFoodCandidate
 import com.suivialimentation.android.data.model.Profile
 import com.suivialimentation.android.data.model.ValidateMealResponse
+import com.suivialimentation.android.data.model.UpdateMealItemResponse
+import com.suivialimentation.android.data.model.RemoveMealItemResponse
+import com.suivialimentation.android.data.model.VoidMealResponse
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.json.JsonElement
@@ -66,6 +69,7 @@ interface NutritionRepository {
     suspend fun connect()
     suspend fun disconnect()
     suspend fun loadToday(): TodayData
+    suspend fun loadDay(profileId: String, localDate: String): TodayData
     suspend fun changes(profileId: String): Flow<Unit>
 
     suspend fun searchCiqual(profileId: String, query: String, limit: Int = 20): List<CiqualFoodCandidate>
@@ -87,6 +91,21 @@ interface NutritionRepository {
     ): AddFoodToMealResponse
     suspend fun validateMeal(mealId: String, expectedMealRevision: Long): ValidateMealResponse
     suspend fun duplicateMeal(sourceMealId: String, targetLocalDate: String): DuplicateMealResponse
+    suspend fun startMealCorrection(sourceMealId: String): DuplicateMealResponse
+    suspend fun updateMealItemQuantity(
+        itemId: String,
+        quantityValue: Double,
+        quantityUnit: String,
+        portionId: String?,
+        expectedItemRevision: Long,
+        expectedMealRevision: Long,
+    ): UpdateMealItemResponse
+    suspend fun removeMealItem(
+        itemId: String,
+        expectedItemRevision: Long,
+        expectedMealRevision: Long,
+    ): RemoveMealItemResponse
+    suspend fun voidMeal(mealId: String, expectedMealRevision: Long): VoidMealResponse
 
     suspend fun executeMutation(
         commandType: String,

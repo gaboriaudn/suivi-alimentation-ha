@@ -17,6 +17,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.time.LocalDate
+import java.time.ZoneId
 
 sealed interface TodayConnection {
     data object Disconnected : TodayConnection
@@ -34,6 +36,7 @@ data class TodayUiState(
     val error: String? = null,
     val duplicatingMealId: String? = null,
     val duplicatedDraft: MealWithItems? = null,
+    val deletingMealId: String? = null,
 )
 
 class TodayViewModel(private val repository: NutritionRepository) : ViewModel() {
@@ -42,6 +45,7 @@ class TodayViewModel(private val repository: NutritionRepository) : ViewModel() 
     private val refreshMutex = Mutex()
     private var changesJob: Job? = null
     private var subscribedProfileId: String? = null
+    private var selectedLocalDate: String? = null
 
     init {
         viewModelScope.launch { repository.connect() }
@@ -86,6 +90,65 @@ class TodayViewModel(private val repository: NutritionRepository) : ViewModel() 
         }
     }
 
+    fun correctMeal(source: MealWithItems) {
+        viewModelScope.launch {
+            _state.update { it.copy(duplicatingMealId = source.meal.id, error = null) }
+            try {
+                val correction = repository.startMealCorrection(source.meal.id)
+                _state.update {
+                    it.copy(
+                        duplicatingMealId = null,
+                        duplicatedDraft = MealWithItems(correction.meal, correction.items),
+                        error = null,
+                    )
+                }
+            } catch (t: Throwable) {
+                _state.update {
+                    it.copy(
+                        duplicatingMealId = null,
+                        error = t.message ?: "Impossible de préparer la correction du repas.",
+                    )
+                }
+            }
+        }
+    }
+
+    fun deleteMeal(source: MealWithItems) {
+        viewModelScope.launch {
+            _state.update { it.copy(deletingMealId = source.meal.id, error = null) }
+            try {
+                repository.voidMeal(source.meal.id, source.meal.revision)
+                _state.update { it.copy(deletingMealId = null, error = null) }
+                refresh(showLoader = false)
+            } catch (t: Throwable) {
+                _state.update {
+                    it.copy(
+                        deletingMealId = null,
+                        error = t.message ?: "Impossible de supprimer le repas.",
+                    )
+                }
+            }
+        }
+    }
+
+    fun previousDay() = changeDay(-1)
+
+    fun nextDay() = changeDay(1)
+
+    fun today() {
+        selectedLocalDate = null
+        viewModelScope.launch { refresh(showLoader = true) }
+    }
+
+    private fun changeDay(delta: Long) {
+        val content = _state.value.content ?: return
+        val target = runCatching { LocalDate.parse(content.localDate).plusDays(delta) }.getOrNull() ?: return
+        val zone = runCatching { ZoneId.of(content.profile.defaultTimeZone) }.getOrDefault(ZoneId.systemDefault())
+        if (target.isAfter(LocalDate.now(zone))) return
+        selectedLocalDate = target.toString()
+        viewModelScope.launch { refresh(showLoader = true) }
+    }
+
     fun consumeDuplicatedDraft() {
         _state.update { it.copy(duplicatedDraft = null) }
     }
@@ -93,7 +156,14 @@ class TodayViewModel(private val repository: NutritionRepository) : ViewModel() 
     private suspend fun refresh(showLoader: Boolean) = refreshMutex.withLock {
         if (showLoader) _state.update { it.copy(loading = true, error = null) }
         try {
-            val data = repository.loadToday()
+            val current = _state.value.content
+            val requestedDate = selectedLocalDate
+            val data = if (requestedDate != null && current != null) {
+                repository.loadDay(current.profile.id, requestedDate)
+            } else {
+                repository.loadToday()
+            }
+            if (selectedLocalDate == null) selectedLocalDate = data.localDate
             _state.update { it.copy(loading = false, content = data, error = null) }
             ensureChangesSubscription(data.profile.id)
         } catch (_: TransportDisconnectedException) {

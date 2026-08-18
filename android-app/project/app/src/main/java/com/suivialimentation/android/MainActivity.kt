@@ -100,6 +100,7 @@ private data class MealEntryRoute(
     val profileId: String,
     val localDate: String,
     val draft: MealWithItems? = null,
+    val existingMeals: List<MealWithItems> = emptyList(),
 )
 
 @Composable
@@ -158,6 +159,7 @@ private fun SignedInRoot(sessionGeneration: Long, appViewModel: AppViewModel, co
                     token = UUID.randomUUID().toString(),
                     profileId = content.profile.id,
                     localDate = content.localDate,
+                    existingMeals = content.meals,
                 )
             },
             onContinueDraft = { draft ->
@@ -170,6 +172,11 @@ private fun SignedInRoot(sessionGeneration: Long, appViewModel: AppViewModel, co
                 )
             },
             onDuplicateMeal = todayViewModel::duplicateMeal,
+            onCorrectMeal = todayViewModel::correctMeal,
+            onDeleteMeal = todayViewModel::deleteMeal,
+            onPreviousDay = todayViewModel::previousDay,
+            onNextDay = todayViewModel::nextDay,
+            onToday = todayViewModel::today,
         )
     } else {
         val mealEntryViewModel: MealEntryViewModel = viewModel(
@@ -179,6 +186,7 @@ private fun SignedInRoot(sessionGeneration: Long, appViewModel: AppViewModel, co
                 profileId = route.profileId,
                 localDate = route.localDate,
                 initialDraft = route.draft,
+                existingMeals = route.existingMeals,
             ),
         )
         val mealEntryState by mealEntryViewModel.state.collectAsStateWithLifecycle()
@@ -220,6 +228,14 @@ private fun SignedInRoot(sessionGeneration: Long, appViewModel: AppViewModel, co
             onDismissFood = mealEntryViewModel::dismissFood,
             onQuantityChange = mealEntryViewModel::updateQuantity,
             onAddFood = mealEntryViewModel::addSelectedFood,
+            onComplementExistingMeal = mealEntryViewModel::complementExistingMeal,
+            onCreateSeparateMeal = mealEntryViewModel::createSeparateMeal,
+            onCancelExistingMealChoice = mealEntryViewModel::cancelExistingMealChoice,
+            onEditItem = mealEntryViewModel::editItem,
+            onEditQuantityChange = mealEntryViewModel::updateEditQuantity,
+            onConfirmItemEdit = mealEntryViewModel::confirmItemEdit,
+            onDismissItemEdit = mealEntryViewModel::dismissItemEdit,
+            onRemoveItem = mealEntryViewModel::removeItem,
             onValidate = mealEntryViewModel::validateMeal,
             onBack = {
                 mealEntryRoute = null
