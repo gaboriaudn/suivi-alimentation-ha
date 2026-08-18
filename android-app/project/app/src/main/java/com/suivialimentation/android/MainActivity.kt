@@ -19,6 +19,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -33,6 +34,9 @@ import com.suivialimentation.android.ui.mealentry.MealEntryViewModel
 import com.suivialimentation.android.ui.theme.SuiviAlimentationTheme
 import com.suivialimentation.android.ui.today.TodayScreen
 import com.suivialimentation.android.ui.today.TodayViewModel
+import com.google.mlkit.vision.barcode.common.Barcode
+import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
+import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import java.util.UUID
 import kotlinx.coroutines.launch
 
@@ -164,6 +168,19 @@ private fun SignedInRoot(sessionGeneration: Long, appViewModel: AppViewModel, co
             ),
         )
         val mealEntryState by mealEntryViewModel.state.collectAsStateWithLifecycle()
+        val context = LocalContext.current
+        val barcodeScanner = remember(context) {
+            val options = GmsBarcodeScannerOptions.Builder()
+                .setBarcodeFormats(
+                    Barcode.FORMAT_EAN_13,
+                    Barcode.FORMAT_EAN_8,
+                    Barcode.FORMAT_UPC_A,
+                    Barcode.FORMAT_UPC_E,
+                )
+                .enableAutoZoom()
+                .build()
+            GmsBarcodeScanning.getClient(context, options)
+        }
         MealEntryScreen(
             state = mealEntryState,
             onSelectMealType = mealEntryViewModel::selectMealType,
@@ -171,6 +188,18 @@ private fun SignedInRoot(sessionGeneration: Long, appViewModel: AppViewModel, co
             onSearch = mealEntryViewModel::search,
             onSelectFood = mealEntryViewModel::selectFood,
             onSelectPersonalFood = mealEntryViewModel::selectPersonalFood,
+            onBarcodeChange = mealEntryViewModel::updateBarcode,
+            onScanBarcode = {
+                barcodeScanner.startScan()
+                    .addOnSuccessListener { barcode ->
+                        barcode.rawValue?.let(mealEntryViewModel::barcodeScanned)
+                    }
+                    .addOnFailureListener { error ->
+                        mealEntryViewModel.barcodeScanFailed(error.localizedMessage)
+                    }
+            },
+            onLookupBarcode = mealEntryViewModel::lookupBarcode,
+            onSelectOffProduct = mealEntryViewModel::selectOffProduct,
             onSelectPortion = mealEntryViewModel::selectPortion,
             onDismissFood = mealEntryViewModel::dismissFood,
             onQuantityChange = mealEntryViewModel::updateQuantity,
