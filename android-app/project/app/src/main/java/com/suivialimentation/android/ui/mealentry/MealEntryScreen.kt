@@ -331,7 +331,7 @@ fun MealEntryScreen(
             if (state.personalSearchResults.isNotEmpty()) {
                 item { SectionHeader("Mes aliments") }
                 items(state.personalSearchResults, key = { it.sourceExternalId }) { food ->
-                    itemResultCard(
+                    ResultCard(
                         title = food.label,
                         subtitle = buildList {
                             food.nutrientsPer100g?.let { add("Pour 100 g : ${nutritionSummary(it)}") }
@@ -360,7 +360,7 @@ fun MealEntryScreen(
                 }
                 items(state.searchResults, key = { it.sourceExternalId }) { food ->
                     val prep = preparationLabel(food.label)
-                    itemResultCard(
+                    ResultCard(
                         title = food.label,
                         subtitle = buildList {
                             prep?.let(::add)
@@ -520,15 +520,6 @@ private fun ResultCard(title: String, subtitle: String, enabled: Boolean, onSele
             Text("›", style = MaterialTheme.typography.titleLarge)
         }
     }
-}
-
-private fun androidx.compose.foundation.lazy.LazyListScope.itemResultCard(
-    title: String,
-    subtitle: String,
-    enabled: Boolean,
-    onSelect: () -> Unit,
-) {
-    item { ResultCard(title, subtitle, enabled, onSelect) }
 }
 
 @Composable
