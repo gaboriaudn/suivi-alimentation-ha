@@ -44,8 +44,20 @@ def _clean(value: str | None) -> str:
 
 
 def _norm_text(value: str | None) -> str:
-    text = unicodedata.normalize("NFKD", _clean(value).lower())
+    text = _clean(value).lower().replace("œ", "oe").replace("æ", "ae")
+    text = unicodedata.normalize("NFKD", text)
     return " ".join("".join(ch for ch in text if not unicodedata.combining(ch)).split())
+
+
+def _search_token_matches(token: str, label: str) -> bool:
+    """Match a query token, including a conservative French plural in ``s``."""
+    if token in label:
+        return True
+    if len(token) > 3 and token.endswith("s"):
+        singular = token[:-1]
+        words = [word.strip(".,;:!?()[]{}'\"") for word in label.split()]
+        return singular in words
+    return False
 
 
 def _number(value: Any) -> float | None:
@@ -144,7 +156,7 @@ class NutritionService:
         ranked = []
         for record in self._ciqual_records.values():
             label = record["labelNormalized"]
-            if all(token in label for token in tokens):
+            if all(_search_token_matches(token, label) for token in tokens):
                 score = 0 if label == needle else (1 if label.startswith(needle) else 2)
                 ranked.append((score, len(label), record))
         ranked.sort(key=lambda row: (row[0], row[1], row[2]["label"]))
@@ -169,7 +181,7 @@ class NutritionService:
         ranked = []
         for food in foods:
             label = _norm_text(food.get("name"))
-            if all(token in label for token in tokens):
+            if all(_search_token_matches(token, label) for token in tokens):
                 score = 0 if label == needle else (1 if label.startswith(needle) else 2)
                 ranked.append((score, len(label), food))
         ranked.sort(key=lambda row: (row[0], row[1], row[2].get("name") or ""))
