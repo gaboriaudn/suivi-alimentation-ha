@@ -18,6 +18,11 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 
+enum class PhotoAnalysisMode {
+    FOOD,
+    MEAL,
+}
+
 data class PhotoFoodSuggestion(
     val label: String,
     val estimatedGrams: Double,
@@ -39,7 +44,7 @@ class PhotoAnalysisService(
 ) {
     private val appContext = context.applicationContext
 
-    suspend fun analyze(uri: Uri): PhotoAnalysisResult = withContext(Dispatchers.IO) {
+    suspend fun analyze(uri: Uri, mode: PhotoAnalysisMode): PhotoAnalysisResult = withContext(Dispatchers.IO) {
         val session = tokenProvider.currentSession() ?: error("Session Home Assistant absente.")
         val token = tokenProvider.validAccessToken()
         val bytes = appContext.contentResolver.openInputStream(uri)?.use { it.readBytes() }
@@ -48,8 +53,8 @@ class PhotoAnalysisService(
 
         val mediaId = upload(session.instanceUrl, token, bytes, mime)
         try {
-            val result = runAiTask(session.instanceUrl, token, mediaId, mime)
-            parseResult(result)
+            val result = runAiTask(session.instanceUrl, token, mediaId, mime, mode)
+            parseResult(result, mode)
         } finally {
             runCatching { removeMedia(session.instanceUrl, token, mediaId) }
         }
@@ -59,7 +64,7 @@ class PhotoAnalysisService(
         val body = MultipartBody.Builder()
             .setType(MultipartBody.FORM)
             .addFormDataPart("media_content_id", "media-source://media_source/local/.")
-            .addFormDataPart("file", "repas.jpg", bytes.toRequestBody(mime.toMediaType()))
+            .addFormDataPart("file", "photo_alimentation.jpg", bytes.toRequestBody(mime.toMediaType()))
             .build()
         val request = Request.Builder()
             .url("$baseUrl/api/media_source/local_source/upload")
@@ -75,20 +80,34 @@ class PhotoAnalysisService(
         }
     }
 
-    private fun runAiTask(baseUrl: String, token: String, mediaId: String, mime: String): JsonObject {
+    private fun runAiTask(
+        baseUrl: String,
+        token: String,
+        mediaId: String,
+        mime: String,
+        mode: PhotoAnalysisMode,
+    ): JsonObject {
+        val instructions = when (mode) {
+            PhotoAnalysisMode.FOOD ->
+                "La photo représente un aliment isolé. Identifie uniquement l’aliment principal réellement visible, avec le nom générique le plus simple possible. " +
+                    "N’invente jamais de recette, de préparation, d’accompagnement ou d’ingrédient non visible. " +
+                    "Exemple important : une pêche seule doit être nommée Pêche, jamais Pêche Melba. " +
+                    "N’invente aucune valeur nutritionnelle. Donne une seule ligne au format exact NOM | GRAMMES. " +
+                    "Les grammes sont une estimation visuelle à faire confirmer par l’utilisateur."
+            PhotoAnalysisMode.MEAL ->
+                "La photo représente un repas ou une assiette composée. Identifie uniquement les aliments réellement visibles et décompose-les en aliments simples lorsque cela est raisonnablement possible. " +
+                    "N’invente pas de sauce, recette ou ingrédient invisible. Si un plat composé ne peut pas être décomposé visuellement avec fiabilité, utilise un nom descriptif simple sans inventer sa recette. " +
+                    "N’invente aucune valeur nutritionnelle. Donne une ligne par aliment au format exact NOM | GRAMMES. " +
+                    "Les grammes sont des estimations visuelles à faire confirmer par l’utilisateur."
+        }
         val payload = buildJsonObject {
-            put("task_name", "Identification d’aliments")
+            put("task_name", if (mode == PhotoAnalysisMode.FOOD) "Identification d’un aliment" else "Identification d’un repas")
             put("entity_id", "ai_task.openai_ai_task")
-            put(
-                "instructions",
-                "Analyse uniquement ce qui est visible dans l’assiette. " +
-                    "N’invente aucune valeur nutritionnelle. Donne un titre court et une ligne par aliment au format exact NOM | GRAMMES. " +
-                    "Les grammes sont une estimation visuelle à faire confirmer par l’utilisateur. Ne mets pas les sauces ou ingrédients invisibles.",
-            )
+            put("instructions", instructions)
             put("structure", buildJsonObject {
                 put("title", buildJsonObject {
                     put("selector", buildJsonObject { put("text", buildJsonObject {}) })
-                    put("description", "Nom court du repas en français")
+                    put("description", if (mode == PhotoAnalysisMode.FOOD) "Nom générique court de l’aliment en français" else "Description courte du repas en français")
                 })
                 put("items_text", buildJsonObject {
                     put("selector", buildJsonObject { put("text", buildJsonObject {}) })
@@ -115,19 +134,21 @@ class PhotoAnalysisService(
         }
     }
 
-    private fun parseResult(root: JsonObject): PhotoAnalysisResult {
+    private fun parseResult(root: JsonObject, mode: PhotoAnalysisMode): PhotoAnalysisResult {
         val data = root["service_response"]?.jsonObject?.get("data")?.jsonObject
             ?: root["response"]?.jsonObject?.get("data")?.jsonObject
             ?: root["data"]?.jsonObject
             ?: JsonObject(emptyMap())
-        val title = data["title"]?.jsonPrimitive?.content.orEmpty().ifBlank { "Repas photographié" }
+        val fallbackTitle = if (mode == PhotoAnalysisMode.FOOD) "Aliment photographié" else "Repas photographié"
+        val title = data["title"]?.jsonPrimitive?.content.orEmpty().ifBlank { fallbackTitle }
         val lines = data["items_text"]?.jsonPrimitive?.content.orEmpty().lineSequence()
+        val maxItems = if (mode == PhotoAnalysisMode.FOOD) 1 else 12
         val suggestions = lines.mapNotNull { line ->
             val parts = line.split('|', limit = 2)
             val label = parts.getOrNull(0)?.trim().orEmpty()
             val grams = parts.getOrNull(1)?.trim()?.replace(',', '.')?.filter { it.isDigit() || it == '.' }?.toDoubleOrNull()
             if (label.isBlank() || grams == null || grams <= 0.0) null else PhotoFoodSuggestion(label, grams)
-        }.take(12).toList()
+        }.take(maxItems).toList()
         if (suggestions.isEmpty()) error("Aucun aliment exploitable n’a été reconnu sur cette photo.")
         return PhotoAnalysisResult(title, suggestions)
     }
