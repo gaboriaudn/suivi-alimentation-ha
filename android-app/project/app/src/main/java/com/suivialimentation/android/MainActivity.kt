@@ -8,8 +8,11 @@ import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.browser.auth.AuthTabIntent
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -21,23 +24,27 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.google.mlkit.vision.barcode.common.Barcode
+import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
+import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import com.suivialimentation.android.data.repository.MealWithItems
 import com.suivialimentation.android.di.AppContainer
 import com.suivialimentation.android.ui.AppEvent
 import com.suivialimentation.android.ui.AppUiState
 import com.suivialimentation.android.ui.AppViewModel
 import com.suivialimentation.android.ui.LoginScreen
+import com.suivialimentation.android.ui.features.FeatureHubScreen
+import com.suivialimentation.android.ui.features.FeatureHubViewModel
 import com.suivialimentation.android.ui.mealentry.MealEntryScreen
 import com.suivialimentation.android.ui.mealentry.MealEntryViewModel
+import com.suivialimentation.android.ui.photo.PhotoMealViewModel
 import com.suivialimentation.android.ui.theme.SuiviAlimentationTheme
 import com.suivialimentation.android.ui.today.TodayScreen
 import com.suivialimentation.android.ui.today.TodayViewModel
-import com.google.mlkit.vision.barcode.common.Barcode
-import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
-import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import java.util.UUID
 import kotlinx.coroutines.launch
 
@@ -134,6 +141,7 @@ private fun SignedInRoot(sessionGeneration: Long, appViewModel: AppViewModel, co
     )
     val todayState by todayViewModel.state.collectAsStateWithLifecycle()
     var mealEntryRoute by remember(sessionGeneration) { mutableStateOf<MealEntryRoute?>(null) }
+    var showFeatureHub by remember(sessionGeneration) { mutableStateOf(false) }
     val route = mealEntryRoute
 
     LaunchedEffect(todayState.duplicatedDraft?.meal?.id) {
@@ -148,36 +156,93 @@ private fun SignedInRoot(sessionGeneration: Long, appViewModel: AppViewModel, co
         todayViewModel.consumeDuplicatedDraft()
     }
 
-    if (route == null) {
-        TodayScreen(
-            state = todayState,
-            onRetry = todayViewModel::retry,
-            onLogout = appViewModel::logout,
-            onAddMeal = {
-                val content = todayState.content ?: return@TodayScreen
-                mealEntryRoute = MealEntryRoute(
-                    token = UUID.randomUUID().toString(),
-                    profileId = content.profile.id,
-                    localDate = content.localDate,
-                    existingMeals = content.meals,
-                )
-            },
-            onContinueDraft = { draft ->
-                val content = todayState.content ?: return@TodayScreen
-                mealEntryRoute = MealEntryRoute(
-                    token = "${draft.meal.id}-${UUID.randomUUID()}",
-                    profileId = content.profile.id,
-                    localDate = content.localDate,
-                    draft = draft,
-                )
-            },
-            onDuplicateMeal = todayViewModel::duplicateMeal,
-            onCorrectMeal = todayViewModel::correctMeal,
-            onDeleteMeal = todayViewModel::deleteMeal,
-            onPreviousDay = todayViewModel::previousDay,
-            onNextDay = todayViewModel::nextDay,
-            onToday = todayViewModel::today,
+    val content = todayState.content
+    if (showFeatureHub && content != null) {
+        val featureViewModel: FeatureHubViewModel = viewModel(
+            key = "features-${content.profile.id}-${content.localDate}",
+            factory = FeatureHubViewModel.Factory(
+                repository = container.featureRepository,
+                nutritionRepository = container.repository,
+                profileId = content.profile.id,
+                localDate = content.localDate,
+            ),
         )
+        val featureState by featureViewModel.state.collectAsStateWithLifecycle()
+        val photoViewModel: PhotoMealViewModel = viewModel(
+            key = "photo-${content.profile.id}-${content.localDate}",
+            factory = PhotoMealViewModel.Factory(container.photoAnalysisService),
+        )
+        val photoState by photoViewModel.state.collectAsStateWithLifecycle()
+
+        LaunchedEffect(featureState.createdDraft?.meal?.id) {
+            val draft = featureState.createdDraft ?: return@LaunchedEffect
+            mealEntryRoute = MealEntryRoute(
+                token = "${draft.meal.id}-${UUID.randomUUID()}",
+                profileId = content.profile.id,
+                localDate = content.localDate,
+                draft = draft,
+            )
+            featureViewModel.consumeCreatedDraft()
+            showFeatureHub = false
+        }
+
+        FeatureHubScreen(
+            featureState = featureState,
+            photoState = photoState,
+            todayMeals = content.meals,
+            onAnalyzePhoto = photoViewModel::analyze,
+            onClearPhoto = photoViewModel::clear,
+            onCreateFromPhoto = featureViewModel::createFromPhoto,
+            onSaveRecipe = featureViewModel::saveRecipe,
+            onCreateFromRecipe = featureViewModel::createFromRecipe,
+            onBack = {
+                showFeatureHub = false
+                photoViewModel.clear()
+                todayViewModel.retry()
+            },
+        )
+    } else if (route == null) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            TodayScreen(
+                state = todayState,
+                onRetry = todayViewModel::retry,
+                onLogout = appViewModel::logout,
+                onAddMeal = {
+                    val current = todayState.content ?: return@TodayScreen
+                    mealEntryRoute = MealEntryRoute(
+                        token = UUID.randomUUID().toString(),
+                        profileId = current.profile.id,
+                        localDate = current.localDate,
+                        existingMeals = current.meals,
+                    )
+                },
+                onContinueDraft = { draft ->
+                    val current = todayState.content ?: return@TodayScreen
+                    mealEntryRoute = MealEntryRoute(
+                        token = "${draft.meal.id}-${UUID.randomUUID()}",
+                        profileId = current.profile.id,
+                        localDate = current.localDate,
+                        draft = draft,
+                    )
+                },
+                onDuplicateMeal = todayViewModel::duplicateMeal,
+                onCorrectMeal = todayViewModel::correctMeal,
+                onDeleteMeal = todayViewModel::deleteMeal,
+                onPreviousDay = todayViewModel::previousDay,
+                onNextDay = todayViewModel::nextDay,
+                onToday = todayViewModel::today,
+            )
+            if (content != null) {
+                Button(
+                    onClick = { showFeatureHub = true },
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(16.dp),
+                ) {
+                    Text("Photo · Recettes · Analyse")
+                }
+            }
+        }
     } else {
         val mealEntryViewModel: MealEntryViewModel = viewModel(
             key = "meal-entry-${route.token}",

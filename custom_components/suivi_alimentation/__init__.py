@@ -1,4 +1,4 @@
-"""Suivi Alimentation integration - v0.24 Store v2 and usual portions."""
+"""Suivi Alimentation integration - v0.25 photo, recipes and history analysis."""
 from __future__ import annotations
 
 import logging
@@ -18,6 +18,7 @@ from .nutrition_commands_v2 import NutritionCommands
 from .websocket import async_setup as async_setup_websocket
 from .websocket_v2 import async_setup as async_setup_websocket_v2
 from .websocket_nutrition_v2 import async_setup as async_setup_websocket_nutrition_v2
+from .websocket_features_v2 import async_setup as async_setup_websocket_features_v2
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -26,20 +27,16 @@ CARD_FILENAME = "suivi-alimentation-card.js"
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
-    """Set up the Suivi Alimentation component."""
     return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Suivi Alimentation from a config entry."""
-
-    # Store v1 remains authoritative for the current dashboard.
     store = SuiviAlimentationStore(hass)
     await store.async_load()
     hass.data[DOMAIN] = store
     _LOGGER.info("Suivi Alimentation: Store v1 loaded and remains authoritative")
 
-    # Store v2 is isolated and may only be mutated through the repository.
     store_v2 = SuiviAlimentationStoreV2(hass)
     await store_v2.async_load()
     repository_v2 = SuiviAlimentationRepository(hass, store_v2)
@@ -53,11 +50,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     async_setup_websocket(hass)
     async_setup_websocket_v2(hass)
     async_setup_websocket_nutrition_v2(hass)
-    _LOGGER.info("Suivi Alimentation: WebSocket v1 + v2 initialized")
+    async_setup_websocket_features_v2(hass)
+    _LOGGER.info("Suivi Alimentation: WebSocket v1 + v2 + features initialized")
 
-    # ── Fichiers statiques ─────────────────────────────────────────────────
     panel_url = f"/{DOMAIN}_panel"
-
     try:
         await hass.http.async_register_static_paths([
             StaticPathConfig(panel_url, FRONTEND_DIR, cache_headers=False)
@@ -67,7 +63,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _LOGGER.error("Suivi Alimentation: erreur fichiers statiques: %s", err)
         return False
 
-    # ── Panneau latéral ────────────────────────────────────────────────────
     try:
         if PANEL_URL not in hass.data.get("frontend_panels", {}):
             await panel_custom.async_register_panel(
@@ -90,7 +85,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Unload a config entry."""
     hass.data.pop(f"{DOMAIN}_nutrition_commands_v2", None)
     hass.data.pop(f"{DOMAIN}_nutrition_v2", None)
     hass.data.pop(f"{DOMAIN}_repository_v2", None)
