@@ -41,6 +41,8 @@ fun TodayScreen(
     state: TodayUiState,
     onRetry: () -> Unit,
     onLogout: () -> Unit,
+    onAddMeal: () -> Unit,
+    onContinueDraft: (MealWithItems) -> Unit,
 ) {
     Scaffold(
         topBar = {
@@ -54,7 +56,13 @@ fun TodayScreen(
             ConnectionBanner(state.connection)
             when {
                 state.loading && state.content == null -> LoadingBody()
-                state.content != null -> TodayContent(data = state.content, error = state.error, onRetry = onRetry)
+                state.content != null -> TodayContent(
+                    data = state.content,
+                    error = state.error,
+                    onRetry = onRetry,
+                    onAddMeal = onAddMeal,
+                    onContinueDraft = onContinueDraft,
+                )
                 else -> ErrorBody(state.error ?: "Données indisponibles.", onRetry)
             }
         }
@@ -101,7 +109,13 @@ private fun ErrorBody(message: String, onRetry: () -> Unit) {
 }
 
 @Composable
-private fun TodayContent(data: TodayData, error: String?, onRetry: () -> Unit) {
+private fun TodayContent(
+    data: TodayData,
+    error: String?,
+    onRetry: () -> Unit,
+    onAddMeal: () -> Unit,
+    onContinueDraft: (MealWithItems) -> Unit,
+) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
@@ -127,7 +141,16 @@ private fun TodayContent(data: TodayData, error: String?, onRetry: () -> Unit) {
                 GoalCard("Protéines", data.totals.proteinG, data.activeGoal?.targets?.proteinG, "g", Modifier.weight(1f))
             }
         }
-        item { Text("Repas", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold) }
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Repas", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                Button(onClick = onAddMeal) { Text("Ajouter un repas") }
+            }
+        }
         if (data.meals.isEmpty()) {
             item {
                 Card(modifier = Modifier.fillMaxWidth()) {
@@ -135,7 +158,7 @@ private fun TodayContent(data: TodayData, error: String?, onRetry: () -> Unit) {
                 }
             }
         } else {
-            items(data.meals, key = { it.meal.id }) { meal -> MealCard(meal) }
+            items(data.meals, key = { it.meal.id }) { meal -> MealCard(meal, onContinueDraft) }
         }
         item { Text("Révision serveur ${data.storeRevision}", style = MaterialTheme.typography.labelSmall) }
     }
@@ -157,10 +180,11 @@ private fun GoalCard(title: String, value: Double?, target: Double?, unit: Strin
 }
 
 @Composable
-private fun MealCard(group: MealWithItems) {
+private fun MealCard(group: MealWithItems, onContinueDraft: (MealWithItems) -> Unit) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp)) {
             Text(group.meal.label?.takeIf { it.isNotBlank() } ?: mealTypeLabel(group.meal.mealType), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            if (group.meal.status == "draft") Text("Brouillon", style = MaterialTheme.typography.labelMedium)
             group.meal.totalsSnapshot?.let { Text(snapshotSummary(it), style = MaterialTheme.typography.bodySmall) }
             if (group.items.isNotEmpty()) Spacer(Modifier.height(8.dp))
             group.items.forEachIndexed { index, item ->
@@ -172,6 +196,10 @@ private fun MealCard(group: MealWithItems) {
                     }
                     item.nutritionSnapshot?.let { Text(snapshotSummary(it), style = MaterialTheme.typography.bodySmall) }
                 }
+            }
+            if (group.meal.status == "draft") {
+                Spacer(Modifier.height(8.dp))
+                TextButton(onClick = { onContinueDraft(group) }) { Text("Continuer le brouillon") }
             }
         }
     }
