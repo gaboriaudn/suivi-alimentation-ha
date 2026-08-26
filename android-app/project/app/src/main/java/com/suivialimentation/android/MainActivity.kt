@@ -7,24 +7,31 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.browser.auth.AuthTabIntent
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AddCircle
+import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -38,6 +45,7 @@ import com.suivialimentation.android.ui.AppUiState
 import com.suivialimentation.android.ui.AppViewModel
 import com.suivialimentation.android.ui.LoginScreen
 import com.suivialimentation.android.ui.features.FeatureHubScreen
+import com.suivialimentation.android.ui.features.FeatureHubSection
 import com.suivialimentation.android.ui.features.FeatureHubViewModel
 import com.suivialimentation.android.ui.mealentry.MealEntryScreen
 import com.suivialimentation.android.ui.mealentry.MealEntryViewModel
@@ -110,6 +118,13 @@ private data class MealEntryRoute(
     val existingMeals: List<MealWithItems> = emptyList(),
 )
 
+private enum class MainDestination(val label: String) {
+    TODAY("Aujourd’hui"),
+    ADD("Ajouter"),
+    HISTORY("Historique"),
+    MORE("Plus"),
+}
+
 @Composable
 private fun AppRoot(appViewModel: AppViewModel, container: AppContainer) {
     val appState by appViewModel.state.collectAsStateWithLifecycle()
@@ -141,7 +156,7 @@ private fun SignedInRoot(sessionGeneration: Long, appViewModel: AppViewModel, co
     )
     val todayState by todayViewModel.state.collectAsStateWithLifecycle()
     var mealEntryRoute by remember(sessionGeneration) { mutableStateOf<MealEntryRoute?>(null) }
-    var showFeatureHub by remember(sessionGeneration) { mutableStateOf(false) }
+    var destination by remember(sessionGeneration) { mutableStateOf(MainDestination.TODAY) }
     val route = mealEntryRoute
 
     LaunchedEffect(todayState.duplicatedDraft?.meal?.id) {
@@ -157,7 +172,18 @@ private fun SignedInRoot(sessionGeneration: Long, appViewModel: AppViewModel, co
     }
 
     val content = todayState.content
-    if (showFeatureHub && content != null) {
+    val openMealEntry: () -> Unit = {
+        val current = todayState.content
+        if (current != null) {
+            mealEntryRoute = MealEntryRoute(
+                token = UUID.randomUUID().toString(),
+                profileId = current.profile.id,
+                localDate = current.localDate,
+                existingMeals = current.meals,
+            )
+        }
+    }
+    if (route == null && destination in setOf(MainDestination.HISTORY, MainDestination.MORE) && content != null) {
         val featureViewModel: FeatureHubViewModel = viewModel(
             key = "features-${content.profile.id}-${content.localDate}",
             factory = FeatureHubViewModel.Factory(
@@ -183,40 +209,39 @@ private fun SignedInRoot(sessionGeneration: Long, appViewModel: AppViewModel, co
                 draft = draft,
             )
             featureViewModel.consumeCreatedDraft()
-            showFeatureHub = false
+            destination = MainDestination.TODAY
         }
 
-        FeatureHubScreen(
-            featureState = featureState,
-            photoState = photoState,
-            todayMeals = content.meals,
-            onAnalyzeFoodPhoto = photoViewModel::analyzeFood,
-            onAnalyzeMealPhoto = photoViewModel::analyzeMeal,
-            onClearPhoto = photoViewModel::clear,
-            onCreateFromPhoto = featureViewModel::createFromPhoto,
-            onSaveRecipe = featureViewModel::saveRecipe,
-            onCreateFromRecipe = featureViewModel::createFromRecipe,
-            onBack = {
-                showFeatureHub = false
-                photoViewModel.clear()
-                todayViewModel.retry()
-            },
-        )
+        Scaffold(bottomBar = { MainNavigationBar(destination, openMealEntry) { destination = it } }) { navigationPadding ->
+            FeatureHubScreen(
+                modifier = Modifier.padding(navigationPadding),
+                section = if (destination == MainDestination.HISTORY) FeatureHubSection.HISTORY else FeatureHubSection.MORE,
+                featureState = featureState,
+                photoState = photoState,
+                todayMeals = content.meals,
+                onAnalyzeFoodPhoto = photoViewModel::analyzeFood,
+                onAnalyzeMealPhoto = photoViewModel::analyzeMeal,
+                onClearPhoto = photoViewModel::clear,
+                onCreateFromPhoto = featureViewModel::createFromPhoto,
+                onSaveRecipe = featureViewModel::saveRecipe,
+                onCreateFromRecipe = featureViewModel::createFromRecipe,
+                onLogout = appViewModel::logout,
+                onBack = {
+                    destination = MainDestination.TODAY
+                    photoViewModel.clear()
+                    todayViewModel.retry()
+                },
+            )
+        }
     } else if (route == null) {
-        Box(modifier = Modifier.fillMaxSize()) {
+        Scaffold(
+            bottomBar = { MainNavigationBar(destination, openMealEntry) { destination = it } },
+        ) { navigationPadding ->
             TodayScreen(
+                modifier = Modifier.padding(navigationPadding),
                 state = todayState,
                 onRetry = todayViewModel::retry,
-                onLogout = appViewModel::logout,
-                onAddMeal = {
-                    val current = todayState.content ?: return@TodayScreen
-                    mealEntryRoute = MealEntryRoute(
-                        token = UUID.randomUUID().toString(),
-                        profileId = current.profile.id,
-                        localDate = current.localDate,
-                        existingMeals = current.meals,
-                    )
-                },
+                onAddMeal = openMealEntry,
                 onContinueDraft = { draft ->
                     val current = todayState.content ?: return@TodayScreen
                     mealEntryRoute = MealEntryRoute(
@@ -233,16 +258,6 @@ private fun SignedInRoot(sessionGeneration: Long, appViewModel: AppViewModel, co
                 onNextDay = todayViewModel::nextDay,
                 onToday = todayViewModel::today,
             )
-            if (content != null) {
-                Button(
-                    onClick = { showFeatureHub = true },
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(16.dp),
-                ) {
-                    Text("Photo · Recettes · Analyse")
-                }
-            }
         }
     } else {
         val mealEntryViewModel: MealEntryViewModel = viewModel(
@@ -312,6 +327,47 @@ private fun SignedInRoot(sessionGeneration: Long, appViewModel: AppViewModel, co
                 todayViewModel.retry()
             },
         )
+    }
+}
+
+@Composable
+private fun MainNavigationBar(
+    current: MainDestination,
+    onAdd: () -> Unit,
+    onNavigate: (MainDestination) -> Unit,
+) {
+    NavigationBar {
+        MainNavigationItem(MainDestination.TODAY, current == MainDestination.TODAY, Modifier.weight(1f)) { onNavigate(MainDestination.TODAY) }
+        MainNavigationItem(MainDestination.ADD, false, Modifier.weight(1f), onAdd)
+        MainNavigationItem(MainDestination.HISTORY, current == MainDestination.HISTORY, Modifier.weight(1f)) { onNavigate(MainDestination.HISTORY) }
+        MainNavigationItem(MainDestination.MORE, current == MainDestination.MORE, Modifier.weight(1f)) { onNavigate(MainDestination.MORE) }
+    }
+}
+
+@Composable
+private fun MainNavigationItem(
+    destination: MainDestination,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val icon = when (destination) {
+        MainDestination.TODAY -> Icons.Filled.Home
+        MainDestination.ADD -> Icons.Filled.AddCircle
+        MainDestination.HISTORY -> Icons.Filled.CalendarMonth
+        MainDestination.MORE -> Icons.Filled.MoreHoriz
+    }
+    val contentColor = if (selected) androidx.compose.material3.MaterialTheme.colorScheme.primary
+    else androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant
+    Column(
+        modifier = modifier
+            .clickable(onClick = onClick)
+            .padding(vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Icon(icon, contentDescription = destination.label, tint = contentColor)
+        Text(destination.label, color = contentColor, style = androidx.compose.material3.MaterialTheme.typography.labelMedium)
     }
 }
 
