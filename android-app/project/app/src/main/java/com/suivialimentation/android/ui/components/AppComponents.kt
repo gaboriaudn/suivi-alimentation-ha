@@ -8,11 +8,15 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -28,6 +32,20 @@ object AppSpacing {
 val MinimumTouchTarget = 48.dp
 
 @Composable
+fun ScreenHeading(
+    title: String,
+    subtitle: String? = null,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(AppSpacing.xs)) {
+        Text(title, style = MaterialTheme.typography.headlineMedium)
+        subtitle?.takeIf(String::isNotBlank)?.let {
+            Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
 fun SectionHeader(title: String, modifier: Modifier = Modifier) {
     Text(
         text = title,
@@ -35,6 +53,34 @@ fun SectionHeader(title: String, modifier: Modifier = Modifier) {
         style = MaterialTheme.typography.titleMedium,
         fontWeight = FontWeight.SemiBold,
     )
+}
+
+@Composable
+fun AppSectionCard(
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(AppSpacing.lg),
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.sm),
+        ) { content() }
+    }
+}
+
+@Composable
+fun AppIconButton(
+    icon: ImageVector,
+    contentDescription: String,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    IconButton(onClick = onClick, enabled = enabled) {
+        Icon(imageVector = icon, contentDescription = contentDescription)
+    }
 }
 
 @Composable
