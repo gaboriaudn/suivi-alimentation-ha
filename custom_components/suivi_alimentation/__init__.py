@@ -1,4 +1,4 @@
-"""Suivi Alimentation integration - v0.25 photo, recipes and history analysis."""
+"""Suivi Alimentation integration - v0.26 V2 production cutover."""
 from __future__ import annotations
 
 import logging
@@ -12,13 +12,16 @@ from homeassistant.components.http import StaticPathConfig
 from .const import DOMAIN, PANEL_URL, PANEL_TITLE, PANEL_ICON, PANEL_FILENAME
 from .store import SuiviAlimentationStore
 from .store_v2 import SuiviAlimentationStoreV2
-from .repository import SuiviAlimentationRepository
+from .repository_v2_production import ProductionSuiviAlimentationRepository
 from .nutrition_v2 import NutritionService
 from .nutrition_commands_v2 import NutritionCommands
 from .websocket import async_setup as async_setup_websocket
 from .websocket_v2 import async_setup as async_setup_websocket_v2
 from .websocket_nutrition_v2 import async_setup as async_setup_websocket_nutrition_v2
 from .websocket_features_v2 import async_setup as async_setup_websocket_features_v2
+from .websocket_templates_v2 import async_setup as async_setup_websocket_templates_v2
+from .websocket_admin_v2 import async_setup as async_setup_websocket_admin_v2
+from .legacy_bridge_v2 import async_setup as async_setup_legacy_bridge_v2
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -35,11 +38,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     store = SuiviAlimentationStore(hass)
     await store.async_load()
     hass.data[DOMAIN] = store
-    _LOGGER.info("Suivi Alimentation: Store v1 loaded and remains authoritative")
+    _LOGGER.info("Suivi Alimentation: Store v1 loaded as compatibility view")
 
     store_v2 = SuiviAlimentationStoreV2(hass)
     await store_v2.async_load()
-    repository_v2 = SuiviAlimentationRepository(hass, store_v2)
+    repository_v2 = ProductionSuiviAlimentationRepository(hass, store_v2)
     hass.data[f"{DOMAIN}_store_v2"] = store_v2
     hass.data[f"{DOMAIN}_repository_v2"] = repository_v2
     nutrition_v2 = NutritionService(hass)
@@ -51,7 +54,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     async_setup_websocket_v2(hass)
     async_setup_websocket_nutrition_v2(hass)
     async_setup_websocket_features_v2(hass)
-    _LOGGER.info("Suivi Alimentation: WebSocket v1 + v2 + features initialized")
+    async_setup_websocket_templates_v2(hass)
+    async_setup_websocket_admin_v2(hass)
+    async_setup_legacy_bridge_v2(hass)
+    _LOGGER.info("Suivi Alimentation: V2 APIs, meal templates and legacy dashboard bridge initialized")
 
     panel_url = f"/{DOMAIN}_panel"
     try:

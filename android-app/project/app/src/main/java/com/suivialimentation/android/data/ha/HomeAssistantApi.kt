@@ -80,13 +80,7 @@ class HomeAssistantApi(private val ws: HomeAssistantWebSocketClient) {
 
     suspend fun subscribeToV2Changes(profileId: String): Flow<JsonElement> {
         val key = "suivi-v2-$profileId"
-        val withProfile = buildJsonObject { put("profile_id", profileId) }
-        return try {
-            ws.subscribe(key, "suivi_alimentation/v2/subscribe", withProfile)
-        } catch (e: HomeAssistantCommandException) {
-            ws.removeSubscription(key)
-            ws.subscribe(key, "suivi_alimentation/v2/subscribe", JsonObject(emptyMap()))
-        }
+        return ws.subscribe(key, "suivi_alimentation/v2/subscribe", JsonObject(emptyMap()))
     }
 
     private suspend fun <T> typed(

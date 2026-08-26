@@ -40,6 +40,18 @@ class MealEntryUxTest {
         assertNull(matchingMealForType(listOf(lunch), "breakfast"))
     }
 
+    @Test
+    fun `resumes the most recent draft before creating another meal`() {
+        val olderDraft = meal("draft-old", "breakfast", "draft", "2026-08-18T06:00:00Z")
+        val newerDraft = meal("draft-new", "breakfast", "draft", "2026-08-18T07:00:00Z")
+        val validated = meal("validated", "breakfast", "validated", "2026-08-18T08:00:00Z")
+
+        val selected = matchingDraftForType(listOf(olderDraft, newerDraft, validated), "breakfast")
+
+        assertEquals("draft-new", selected?.meal?.id)
+        assertNull(matchingDraftForType(listOf(validated), "breakfast"))
+    }
+
     private fun meal(id: String, type: String, status: String, createdAt: String) = MealWithItems(
         meal = Meal(
             id = id,

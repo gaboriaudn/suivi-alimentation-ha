@@ -1,4 +1,4 @@
-"""Shadow Store v2 for Suivi Alimentation."""
+"""Store v2 for Suivi Alimentation."""
 from __future__ import annotations
 
 from copy import deepcopy
@@ -24,6 +24,8 @@ COLLECTIONS = (
     "recipesById",
     "recipeRevisionsById",
     "recipeIngredientsById",
+    "mealTemplatesById",
+    "mealTemplateItemsById",
     "nutritionProvenanceById",
     "dailyHistoryByProfileDate",
     "temporaryProposalsById",
@@ -55,7 +57,7 @@ def empty_store_v2() -> dict[str, Any]:
 
 
 class SuiviAlimentationStoreV2:
-    """Isolated HA Store used while v1 remains authoritative."""
+    """Home Assistant Store used by the v2 data model."""
 
     def __init__(self, hass: HomeAssistant) -> None:
         self._store = Store(hass, STORAGE_VERSION_V2, STORAGE_KEY_V2)
