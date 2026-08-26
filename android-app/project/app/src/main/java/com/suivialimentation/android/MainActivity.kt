@@ -49,6 +49,7 @@ import com.suivialimentation.android.ui.features.FeatureHubSection
 import com.suivialimentation.android.ui.features.FeatureHubViewModel
 import com.suivialimentation.android.ui.mealentry.MealEntryScreen
 import com.suivialimentation.android.ui.mealentry.MealEntryViewModel
+import com.suivialimentation.android.ui.mealentry.MealTypeSelectionScreen
 import com.suivialimentation.android.ui.photo.PhotoMealViewModel
 import com.suivialimentation.android.ui.theme.SuiviAlimentationTheme
 import com.suivialimentation.android.ui.today.TodayScreen
@@ -271,6 +272,18 @@ private fun SignedInRoot(sessionGeneration: Long, appViewModel: AppViewModel, co
             ),
         )
         val mealEntryState by mealEntryViewModel.state.collectAsStateWithLifecycle()
+
+        if (route.draft == null && mealEntryState.mealType == null) {
+            MealTypeSelectionScreen(
+                onSelect = mealEntryViewModel::selectMealType,
+                onBack = {
+                    mealEntryRoute = null
+                    todayViewModel.retry()
+                },
+            )
+            return
+        }
+
         val context = LocalContext.current
         val barcodeScanner = remember(context) {
             val options = GmsBarcodeScannerOptions.Builder()
