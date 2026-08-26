@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.suivialimentation.android.data.features.FeatureRepository
 import com.suivialimentation.android.data.features.HistoryAnalysis
+import com.suivialimentation.android.data.features.MealTemplateSummary
 import com.suivialimentation.android.data.features.RecipeSummary
 import com.suivialimentation.android.data.photo.PhotoFoodSuggestion
 import com.suivialimentation.android.data.repository.MealWithItems
@@ -18,6 +19,7 @@ import kotlinx.coroutines.launch
 
 data class FeatureHubUiState(
     val recipes: List<RecipeSummary> = emptyList(),
+    val mealTemplates: List<MealTemplateSummary> = emptyList(),
     val history7: HistoryAnalysis? = null,
     val history30: HistoryAnalysis? = null,
     val busy: Boolean = false,
@@ -43,9 +45,18 @@ class FeatureHubViewModel(
             try {
                 val date = LocalDate.parse(localDate)
                 val recipes = repository.getRecipes(profileId)
+                val templates = repository.getMealTemplates(profileId)
                 val history7 = repository.getHistoryRange(profileId, date.minusDays(6).toString(), date.toString())
                 val history30 = repository.getHistoryRange(profileId, date.minusDays(29).toString(), date.toString())
-                _state.update { it.copy(recipes = recipes, history7 = history7, history30 = history30, busy = false) }
+                _state.update {
+                    it.copy(
+                        recipes = recipes,
+                        mealTemplates = templates,
+                        history7 = history7,
+                        history30 = history30,
+                        busy = false,
+                    )
+                }
             } catch (t: Throwable) {
                 _state.update { it.copy(busy = false, error = t.message ?: "Chargement impossible.") }
             }
@@ -71,6 +82,27 @@ class FeatureHubViewModel(
         }
     }
 
+    fun saveMealTemplate(sourceMealId: String, name: String) {
+        if (name.isBlank()) return
+        viewModelScope.launch {
+            _state.update { it.copy(busy = true, error = null, message = null) }
+            try {
+                val template = repository.saveMealAsTemplate(sourceMealId, name)
+                _state.update {
+                    it.copy(
+                        mealTemplates = (it.mealTemplates + template)
+                            .distinctBy(MealTemplateSummary::id)
+                            .sortedBy(MealTemplateSummary::name),
+                        busy = false,
+                        message = "Repas type « ${template.name} » enregistré.",
+                    )
+                }
+            } catch (t: Throwable) {
+                _state.update { it.copy(busy = false, error = t.message ?: "Enregistrement du repas type impossible.") }
+            }
+        }
+    }
+
     fun createFromRecipe(recipeId: String, mealType: String) {
         viewModelScope.launch {
             _state.update { it.copy(busy = true, error = null, createdDraft = null) }
@@ -79,6 +111,18 @@ class FeatureHubViewModel(
                 _state.update { it.copy(busy = false, createdDraft = draft) }
             } catch (t: Throwable) {
                 _state.update { it.copy(busy = false, error = t.message ?: "Création du brouillon impossible.") }
+            }
+        }
+    }
+
+    fun createFromMealTemplate(templateId: String, mealType: String) {
+        viewModelScope.launch {
+            _state.update { it.copy(busy = true, error = null, createdDraft = null) }
+            try {
+                val draft = repository.createMealFromTemplate(templateId, mealType, localDate)
+                _state.update { it.copy(busy = false, createdDraft = draft) }
+            } catch (t: Throwable) {
+                _state.update { it.copy(busy = false, error = t.message ?: "Ajout du repas type impossible.") }
             }
         }
     }
