@@ -10,6 +10,13 @@ on:
 permissions: {}
 
 jobs:
+  validate-python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Compile Python sources
+        run: python -m compileall -q custom_components/suivi_alimentation
+
   validate-hacs:
     runs-on: "ubuntu-latest"
     steps:
