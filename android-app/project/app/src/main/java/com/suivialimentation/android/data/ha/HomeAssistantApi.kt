@@ -57,7 +57,7 @@ class HomeAssistantApi(private val ws: HomeAssistantWebSocketClient) {
         profileId: String,
         query: String,
         limit: Int = 20,
-    ): List<PersonalFoodCandidate> = typed(
+    ): PersonalFoodSearchResponse = typed(
         "suivi_alimentation/v2/search_personal_foods",
         PersonalFoodSearchResponse.serializer(),
         buildJsonObject {
@@ -65,7 +65,7 @@ class HomeAssistantApi(private val ws: HomeAssistantWebSocketClient) {
             put("query", query)
             put("limit", limit)
         },
-    ).items
+    )
 
     suspend fun getOffProduct(profileId: String, barcode: String): OffProductCandidate = typed(
         "suivi_alimentation/v2/get_off_product",
