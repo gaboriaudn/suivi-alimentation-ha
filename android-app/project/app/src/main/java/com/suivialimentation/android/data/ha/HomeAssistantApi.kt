@@ -57,7 +57,7 @@ class HomeAssistantApi(private val ws: HomeAssistantWebSocketClient) {
         profileId: String,
         query: String,
         limit: Int = 20,
-    ): PersonalFoodSearchResponse = typed(
+    ): List<PersonalFoodCandidate> = typed(
         "suivi_alimentation/v2/search_personal_foods",
         PersonalFoodSearchResponse.serializer(),
         buildJsonObject {
@@ -65,7 +65,7 @@ class HomeAssistantApi(private val ws: HomeAssistantWebSocketClient) {
             put("query", query)
             put("limit", limit)
         },
-    )
+    ).items
 
     suspend fun getOffProduct(profileId: String, barcode: String): OffProductCandidate = typed(
         "suivi_alimentation/v2/get_off_product",
@@ -80,13 +80,7 @@ class HomeAssistantApi(private val ws: HomeAssistantWebSocketClient) {
 
     suspend fun subscribeToV2Changes(profileId: String): Flow<JsonElement> {
         val key = "suivi-v2-$profileId"
-        val withProfile = buildJsonObject { put("profile_id", profileId) }
-        return try {
-            ws.subscribe(key, "suivi_alimentation/v2/subscribe", withProfile)
-        } catch (e: HomeAssistantCommandException) {
-            ws.removeSubscription(key)
-            ws.subscribe(key, "suivi_alimentation/v2/subscribe", JsonObject(emptyMap()))
-        }
+        return ws.subscribe(key, "suivi_alimentation/v2/subscribe", JsonObject(emptyMap()))
     }
 
     private suspend fun <T> typed(
