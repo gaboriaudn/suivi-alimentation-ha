@@ -1,8 +1,9 @@
-"""One-way compatibility bridge from Store v2 to the legacy dashboard store."""
+"""Compatibility bridge between Store v2 and the legacy dashboard store."""
 from __future__ import annotations
 
 from copy import deepcopy
 from typing import Any
+import uuid
 
 from homeassistant.core import HomeAssistant, callback
 
@@ -93,6 +94,7 @@ def _profile_projection(data: dict[str, Any], profile: dict[str, Any]) -> dict[s
 
 
 async def async_sync_legacy_store(hass: HomeAssistant) -> None:
+    """Project the authoritative V2 store into the legacy dashboard view."""
     repository = hass.data.get(f"{DOMAIN}_repository_v2")
     legacy_store = hass.data.get(DOMAIN)
     if repository is None or legacy_store is None:
@@ -105,6 +107,37 @@ async def async_sync_legacy_store(hass: HomeAssistant) -> None:
     await legacy_store.async_save({"profiles": profiles})
 
 
+async def async_bootstrap_legacy_bridge(hass: HomeAssistant) -> None:
+    """Import legacy-only entries before V2 overwrites the compatibility view.
+
+    This matters after an integration update/restart: a meal may have been entered
+    from the legacy Home Assistant dashboard while V1 was still the writer. We must
+    ingest those entries into V2 first, otherwise the initial V2 -> V1 projection
+    would erase them before Android can ever see them.
+    """
+    repository = hass.data.get(f"{DOMAIN}_repository_v2")
+    legacy_store = hass.data.get(DOMAIN)
+    if repository is None or legacy_store is None:
+        return
+
+    legacy_data = deepcopy(legacy_store.data or {})
+    profiles = legacy_data.get("profiles") or {}
+    if isinstance(profiles, dict) and hasattr(repository, "async_ingest_legacy_entries"):
+        for profile_id, profile in profiles.items():
+            if not isinstance(profile, dict):
+                continue
+            entries_by_date = profile.get("entriesByDate") or {}
+            if not entries_by_date:
+                continue
+            await repository.async_ingest_legacy_entries(
+                profile_id=profile_id,
+                entries_by_date=entries_by_date,
+                operation_id=f"legacy-bootstrap-{profile_id}-{uuid.uuid4()}",
+            )
+
+    await async_sync_legacy_store(hass)
+
+
 @callback
 def async_setup(hass: HomeAssistant) -> None:
     @callback
@@ -112,4 +145,4 @@ def async_setup(hass: HomeAssistant) -> None:
         hass.async_create_task(async_sync_legacy_store(hass))
 
     hass.bus.async_listen(EVENT_V2_CHANGED, _on_v2_changed)
-    hass.async_create_task(async_sync_legacy_store(hass))
+    hass.async_create_task(async_bootstrap_legacy_bridge(hass))
