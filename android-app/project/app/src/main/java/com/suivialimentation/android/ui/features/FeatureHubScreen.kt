@@ -48,9 +48,16 @@ import java.io.File
 import java.text.NumberFormat
 import java.util.Locale
 
+enum class FeatureHubSection {
+    HISTORY,
+    MORE,
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FeatureHubScreen(
+    modifier: Modifier = Modifier,
+    section: FeatureHubSection,
     featureState: FeatureHubUiState,
     photoState: PhotoMealUiState,
     todayMeals: List<MealWithItems>,
@@ -60,6 +67,7 @@ fun FeatureHubScreen(
     onCreateFromPhoto: (List<PhotoFoodSuggestion>, String) -> Unit,
     onSaveRecipe: (String, String) -> Unit,
     onCreateFromRecipe: (String, String) -> Unit,
+    onLogout: () -> Unit,
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -126,9 +134,10 @@ fun FeatureHubScreen(
     }
 
     Scaffold(
+        modifier = modifier,
         topBar = {
             TopAppBar(
-                title = { Text("Photo, recettes et analyse") },
+                title = { Text(if (section == FeatureHubSection.HISTORY) "Historique" else "Plus") },
                 navigationIcon = {
                     TextButton(onClick = onBack, modifier = Modifier.heightIn(min = MinimumTouchTarget)) {
                         Text("‹ Retour")
@@ -142,10 +151,11 @@ fun FeatureHubScreen(
             contentPadding = PaddingValues(AppSpacing.lg),
             verticalArrangement = Arrangement.spacedBy(AppSpacing.md),
         ) {
-            item {
-                Text("J1.8 · Saisie par photo", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            if (section == FeatureHubSection.MORE) {
+                item {
+                Text("Ajouter depuis une photo", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 Text(
-                    "Choisissez d’abord si vous photographiez un aliment isolé ou un repas. L’IA identifie ce qui est visible ; les valeurs nutritionnelles restent recherchées dans vos aliments ou CIQUAL.",
+                    "Choisissez le type de photo. Les valeurs nutritionnelles restent recherchées dans vos aliments ou CIQUAL.",
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
@@ -214,7 +224,7 @@ fun FeatureHubScreen(
                 }
             }
 
-            item { Text("J1.9 · Recettes", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) }
+            item { Text("Recettes", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) }
             if (featureState.recipes.isEmpty()) {
                 item { Text("Aucune recette enregistrée pour le moment.", style = MaterialTheme.typography.bodySmall) }
             } else {
@@ -244,9 +254,28 @@ fun FeatureHubScreen(
                 ) { Text("Enregistrer ${meal.meal.mealType} comme recette") }
             }
 
-            item { Text("J1.10 · Historique et analyse", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) }
-            item { HistoryCard("7 derniers jours", featureState.history7) }
-            item { HistoryCard("30 derniers jours", featureState.history30) }
+            item {
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(AppSpacing.md), verticalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
+                        Text("Compte et connexion", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text("Home Assistant reste la source de toutes les données de l’application.", style = MaterialTheme.typography.bodySmall)
+                        OutlinedButton(
+                            onClick = onLogout,
+                            modifier = Modifier.fillMaxWidth().heightIn(min = MinimumTouchTarget),
+                        ) { Text("Se déconnecter") }
+                    }
+                }
+            }
+            }
+
+            if (section == FeatureHubSection.HISTORY) {
+                item {
+                    Text("Tendances nutritionnelles", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text("Les moyennes sont calculées uniquement sur les journées qui contiennent des données.", style = MaterialTheme.typography.bodySmall)
+                }
+                item { HistoryCard("7 derniers jours", featureState.history7) }
+                item { HistoryCard("30 derniers jours", featureState.history30) }
+            }
 
             if (featureState.busy) item { CircularProgressIndicator() }
             featureState.error?.let { error -> item { Text(error, style = MaterialTheme.typography.bodySmall) } }
