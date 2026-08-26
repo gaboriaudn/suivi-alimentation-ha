@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.weight
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -338,10 +337,10 @@ private fun MainNavigationBar(
     onNavigate: (MainDestination) -> Unit,
 ) {
     NavigationBar {
-        MainNavigationItem(MainDestination.TODAY, current == MainDestination.TODAY) { onNavigate(MainDestination.TODAY) }
-        MainNavigationItem(MainDestination.ADD, false, onAdd)
-        MainNavigationItem(MainDestination.HISTORY, current == MainDestination.HISTORY) { onNavigate(MainDestination.HISTORY) }
-        MainNavigationItem(MainDestination.MORE, current == MainDestination.MORE) { onNavigate(MainDestination.MORE) }
+        MainNavigationItem(MainDestination.TODAY, current == MainDestination.TODAY, Modifier.weight(1f)) { onNavigate(MainDestination.TODAY) }
+        MainNavigationItem(MainDestination.ADD, false, Modifier.weight(1f), onAdd)
+        MainNavigationItem(MainDestination.HISTORY, current == MainDestination.HISTORY, Modifier.weight(1f)) { onNavigate(MainDestination.HISTORY) }
+        MainNavigationItem(MainDestination.MORE, current == MainDestination.MORE, Modifier.weight(1f)) { onNavigate(MainDestination.MORE) }
     }
 }
 
@@ -349,6 +348,7 @@ private fun MainNavigationBar(
 private fun MainNavigationItem(
     destination: MainDestination,
     selected: Boolean,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
     val icon = when (destination) {
@@ -360,8 +360,7 @@ private fun MainNavigationItem(
     val contentColor = if (selected) androidx.compose.material3.MaterialTheme.colorScheme.primary
     else androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant
     Column(
-        modifier = Modifier
-            .weight(1f)
+        modifier = modifier
             .clickable(onClick = onClick)
             .padding(vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
