@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from typing import Any
 
 from homeassistant.components import websocket_api
@@ -28,16 +29,9 @@ def async_setup(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, websocket_calculate_goals)
 
 
-# ── Rétrocompatibilité ────────────────────────────────────────────────────────
-
 @websocket_api.websocket_command({"type": f"{DOMAIN}/get_data"})
 @websocket_api.async_response
-async def websocket_get_data(
-    hass: HomeAssistant,
-    connection: websocket_api.ActiveConnection,
-    msg: dict[str, Any],
-) -> None:
-    """Return full stored data."""
+async def websocket_get_data(hass, connection, msg) -> None:
     store = hass.data.get(DOMAIN)
     if store is None:
         connection.send_error(msg["id"], "not_ready", "Store not initialized")
@@ -47,12 +41,7 @@ async def websocket_get_data(
 
 @websocket_api.websocket_command({"type": f"{DOMAIN}/save_data", "data": dict})
 @websocket_api.async_response
-async def websocket_save_data(
-    hass: HomeAssistant,
-    connection: websocket_api.ActiveConnection,
-    msg: dict[str, Any],
-) -> None:
-    """Save full data."""
+async def websocket_save_data(hass, connection, msg) -> None:
     store = hass.data.get(DOMAIN)
     if store is None:
         connection.send_error(msg["id"], "not_ready", "Store not initialized")
@@ -65,53 +54,27 @@ async def websocket_save_data(
         connection.send_error(msg["id"], "save_failed", str(err))
 
 
-# ── Multi-profils v0.21 ───────────────────────────────────────────────────────
-
 @websocket_api.websocket_command({"type": f"{DOMAIN}/get_profiles"})
 @websocket_api.async_response
-async def websocket_get_profiles(
-    hass: HomeAssistant,
-    connection: websocket_api.ActiveConnection,
-    msg: dict[str, Any],
-) -> None:
-    """Return list of all profiles (summary only, no entriesByDate)."""
+async def websocket_get_profiles(hass, connection, msg) -> None:
     store = hass.data.get(DOMAIN)
     if store is None:
         connection.send_error(msg["id"], "not_ready", "Store not initialized")
         return
-
     profiles = store.get_profiles()
-    summary = [
-        {
-            "id":           pid,
-            "name":         p.get("name", "Profil"),
-            "ha_user_id":   p.get("ha_user_id"),
-            "goal":         p.get("goal", 2000),
-            "proteinGoal":  p.get("proteinGoal", 100),
-            "bmi":          p.get("bmi"),
-            "idealWeight":  p.get("idealWeight"),
-            "sex":          p.get("sex"),
-            "weight":       p.get("weight"),
-            "height":       p.get("height"),
-            "age":          p.get("age"),
-            "activity":     p.get("activity"),
-            "targetWeight": p.get("targetWeight"),
-        }
-        for pid, p in profiles.items()
-    ]
+    summary = [{
+        "id": pid, "name": p.get("name", "Profil"), "ha_user_id": p.get("ha_user_id"),
+        "goal": p.get("goal", 2000), "proteinGoal": p.get("proteinGoal", 100),
+        "bmi": p.get("bmi"), "idealWeight": p.get("idealWeight"), "sex": p.get("sex"),
+        "weight": p.get("weight"), "height": p.get("height"), "age": p.get("age"),
+        "activity": p.get("activity"), "targetWeight": p.get("targetWeight"),
+    } for pid, p in profiles.items()]
     connection.send_result(msg["id"], {"profiles": summary})
 
 
-@websocket_api.websocket_command(
-    {"type": f"{DOMAIN}/get_profile_data", "profile_id": str}
-)
+@websocket_api.websocket_command({"type": f"{DOMAIN}/get_profile_data", "profile_id": str})
 @websocket_api.async_response
-async def websocket_get_profile_data(
-    hass: HomeAssistant,
-    connection: websocket_api.ActiveConnection,
-    msg: dict[str, Any],
-) -> None:
-    """Return full data for a specific profile."""
+async def websocket_get_profile_data(hass, connection, msg) -> None:
     store = hass.data.get(DOMAIN)
     if store is None:
         connection.send_error(msg["id"], "not_ready", "Store not initialized")
@@ -125,43 +88,26 @@ async def websocket_get_profile_data(
 
 @websocket_api.websocket_command({"type": f"{DOMAIN}/get_profile_for_user"})
 @websocket_api.async_response
-async def websocket_get_profile_for_user(
-    hass: HomeAssistant,
-    connection: websocket_api.ActiveConnection,
-    msg: dict[str, Any],
-) -> None:
-    """Return the profile linked to the current HA user, or default."""
+async def websocket_get_profile_for_user(hass, connection, msg) -> None:
     store = hass.data.get(DOMAIN)
     if store is None:
         connection.send_error(msg["id"], "not_ready", "Store not initialized")
         return
-
-    # Récupérer l'utilisateur connecté via la connexion WebSocket
     user = connection.user
     ha_user_id = user.id if user else None
-
     profile = store.get_profile_for_user(ha_user_id) if ha_user_id else None
     if profile is None:
         connection.send_error(msg["id"], "not_found", "No profile found")
         return
-
     connection.send_result(msg["id"], {
-        "profile": profile,
-        "ha_user_id": ha_user_id,
-        "is_admin": user.is_admin if user else False,
+        "profile": profile, "ha_user_id": ha_user_id, "is_admin": user.is_admin if user else False,
     })
 
 
-@websocket_api.websocket_command(
-    {"type": f"{DOMAIN}/save_profile_data", "profile_id": str, "data": dict}
-)
+@websocket_api.websocket_command({"type": f"{DOMAIN}/save_profile_data", "profile_id": str, "data": dict})
 @websocket_api.async_response
-async def websocket_save_profile_data(
-    hass: HomeAssistant,
-    connection: websocket_api.ActiveConnection,
-    msg: dict[str, Any],
-) -> None:
-    """Save data for a specific profile."""
+async def websocket_save_profile_data(hass, connection, msg) -> None:
+    """Save legacy dashboard data, then import genuinely new entries into V2."""
     store = hass.data.get(DOMAIN)
     if store is None:
         connection.send_error(msg["id"], "not_ready", "Store not initialized")
@@ -171,22 +117,22 @@ async def websocket_save_profile_data(
         if not ok:
             connection.send_error(msg["id"], "not_found", "Profile not found")
             return
+        repository = hass.data.get(f"{DOMAIN}_repository_v2")
+        if repository is not None and hasattr(repository, "async_ingest_legacy_entries"):
+            await repository.async_ingest_legacy_entries(
+                profile_id=msg["profile_id"],
+                entries_by_date=msg["data"].get("entriesByDate") or {},
+                operation_id=f"legacy-dashboard-save-{uuid.uuid4()}",
+            )
         connection.send_result(msg["id"], {"ok": True})
     except Exception as err:
         _LOGGER.error("Suivi Alimentation: erreur save_profile_data: %s", err)
         connection.send_error(msg["id"], "save_failed", str(err))
 
 
-@websocket_api.websocket_command(
-    {"type": f"{DOMAIN}/add_profile", "profile": dict}
-)
+@websocket_api.websocket_command({"type": f"{DOMAIN}/add_profile", "profile": dict})
 @websocket_api.async_response
-async def websocket_add_profile(
-    hass: HomeAssistant,
-    connection: websocket_api.ActiveConnection,
-    msg: dict[str, Any],
-) -> None:
-    """Create a new profile."""
+async def websocket_add_profile(hass, connection, msg) -> None:
     store = hass.data.get(DOMAIN)
     if store is None:
         connection.send_error(msg["id"], "not_ready", "Store not initialized")
@@ -199,16 +145,9 @@ async def websocket_add_profile(
         connection.send_error(msg["id"], "add_failed", str(err))
 
 
-@websocket_api.websocket_command(
-    {"type": f"{DOMAIN}/update_profile", "profile_id": str, "profile": dict}
-)
+@websocket_api.websocket_command({"type": f"{DOMAIN}/update_profile", "profile_id": str, "profile": dict})
 @websocket_api.async_response
-async def websocket_update_profile(
-    hass: HomeAssistant,
-    connection: websocket_api.ActiveConnection,
-    msg: dict[str, Any],
-) -> None:
-    """Update an existing profile metadata."""
+async def websocket_update_profile(hass, connection, msg) -> None:
     store = hass.data.get(DOMAIN)
     if store is None:
         connection.send_error(msg["id"], "not_ready", "Store not initialized")
@@ -224,16 +163,9 @@ async def websocket_update_profile(
         connection.send_error(msg["id"], "update_failed", str(err))
 
 
-@websocket_api.websocket_command(
-    {"type": f"{DOMAIN}/delete_profile", "profile_id": str}
-)
+@websocket_api.websocket_command({"type": f"{DOMAIN}/delete_profile", "profile_id": str})
 @websocket_api.async_response
-async def websocket_delete_profile(
-    hass: HomeAssistant,
-    connection: websocket_api.ActiveConnection,
-    msg: dict[str, Any],
-) -> None:
-    """Delete a profile."""
+async def websocket_delete_profile(hass, connection, msg) -> None:
     store = hass.data.get(DOMAIN)
     if store is None:
         connection.send_error(msg["id"], "not_ready", "Store not initialized")
@@ -241,10 +173,7 @@ async def websocket_delete_profile(
     try:
         ok = await store.delete_profile(msg["profile_id"])
         if not ok:
-            connection.send_error(
-                msg["id"], "delete_failed",
-                "Profil introuvable ou dernier profil (suppression impossible)"
-            )
+            connection.send_error(msg["id"], "delete_failed", "Profil introuvable ou dernier profil (suppression impossible)")
             return
         connection.send_result(msg["id"], {"ok": True})
     except Exception as err:
@@ -252,32 +181,16 @@ async def websocket_delete_profile(
         connection.send_error(msg["id"], "delete_failed", str(err))
 
 
-@websocket_api.websocket_command(
-    {
-        "type":          f"{DOMAIN}/calculate_goals",
-        "age":           int,
-        "sex":           str,
-        "weight":        float,
-        "height":        float,
-        "target_weight": float,
-        "activity":      str,
-    }
-)
+@websocket_api.websocket_command({
+    "type": f"{DOMAIN}/calculate_goals", "age": int, "sex": str, "weight": float,
+    "height": float, "target_weight": float, "activity": str,
+})
 @websocket_api.async_response
-async def websocket_calculate_goals(
-    hass: HomeAssistant,
-    connection: websocket_api.ActiveConnection,
-    msg: dict[str, Any],
-) -> None:
-    """Calculate nutrition goals without saving."""
+async def websocket_calculate_goals(hass, connection, msg) -> None:
     try:
         result = calculate_nutrition_goals(
-            age=msg["age"],
-            sex=msg["sex"],
-            weight=msg["weight"],
-            height=msg["height"],
-            target_weight=msg["target_weight"],
-            activity=msg["activity"],
+            age=msg["age"], sex=msg["sex"], weight=msg["weight"], height=msg["height"],
+            target_weight=msg["target_weight"], activity=msg["activity"],
         )
         connection.send_result(msg["id"], result)
     except Exception as err:
