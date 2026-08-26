@@ -12,7 +12,7 @@ from homeassistant.components.http import StaticPathConfig
 from .const import DOMAIN, PANEL_URL, PANEL_TITLE, PANEL_ICON, PANEL_FILENAME
 from .store import SuiviAlimentationStore
 from .store_v2 import SuiviAlimentationStoreV2
-from .repository import SuiviAlimentationRepository
+from .repository_v2_production import ProductionSuiviAlimentationRepository
 from .nutrition_v2 import NutritionService
 from .nutrition_commands_v2 import NutritionCommands
 from .websocket import async_setup as async_setup_websocket
@@ -42,7 +42,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     store_v2 = SuiviAlimentationStoreV2(hass)
     await store_v2.async_load()
-    repository_v2 = SuiviAlimentationRepository(hass, store_v2)
+    repository_v2 = ProductionSuiviAlimentationRepository(hass, store_v2)
     hass.data[f"{DOMAIN}_store_v2"] = store_v2
     hass.data[f"{DOMAIN}_repository_v2"] = repository_v2
     nutrition_v2 = NutritionService(hass)
