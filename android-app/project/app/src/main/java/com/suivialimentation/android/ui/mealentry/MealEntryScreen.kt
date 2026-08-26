@@ -177,7 +177,7 @@ fun MealEntryScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(if (state.draftMeal == null) "Ajouter un repas" else "Modifier le repas") },
+                title = { Text(if (state.draftMeal == null) "Composer le repas" else "Modifier le repas") },
                 navigationIcon = {
                     IconButton(onClick = onBack) { Icon(Icons.Filled.ArrowBack, contentDescription = "Retour") }
                 },
@@ -191,13 +191,8 @@ fun MealEntryScreen(
         ) {
             item {
                 AppSectionCard {
-                    SectionHeader("Type de repas")
-                    Text("Choisissez le moment auquel rattacher cette saisie.", style = MaterialTheme.typography.bodySmall)
-                    MealTypeSelector(
-                        selected = state.mealType,
-                        enabled = state.draftMeal == null && !state.mutating,
-                        onSelect = onSelectMealType,
-                    )
+                    SectionHeader(mealTypeLabel(state.mealType))
+                    Text("Le moment du repas est défini. Ajoutez maintenant les aliments consommés.", style = MaterialTheme.typography.bodySmall)
                 }
             }
 
@@ -411,24 +406,7 @@ fun MealEntryScreen(
     }
 }
 
-@Composable
-private fun MealTypeSelector(selected: String?, enabled: Boolean, onSelect: (String) -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
-        mealTypes.chunked(2).forEach { row ->
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
-                row.forEach { (value, label) ->
-                    FilterChip(
-                        selected = selected == value,
-                        onClick = { onSelect(value) },
-                        modifier = Modifier.weight(1f).heightIn(min = MinimumTouchTarget),
-                        enabled = enabled,
-                        label = { Text(label, maxLines = 2) },
-                    )
-                }
-            }
-        }
-    }
-}
+private fun mealTypeLabel(type: String?): String = mealTypes.firstOrNull { it.first == type }?.second ?: "Repas"
 
 @Composable
 private fun DraftSummary(
