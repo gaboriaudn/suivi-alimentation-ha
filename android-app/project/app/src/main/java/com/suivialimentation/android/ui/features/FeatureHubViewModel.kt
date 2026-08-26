@@ -65,16 +65,33 @@ class FeatureHubViewModel(
 
     fun saveRecipe(sourceMealId: String, name: String) {
         if (name.isBlank()) return
+        val templatePrefix = "__meal_template__:"
+        val asTemplate = name.startsWith(templatePrefix)
+        val cleanName = if (asTemplate) name.removePrefix(templatePrefix) else name
+        if (cleanName.isBlank()) return
         viewModelScope.launch {
             _state.update { it.copy(busy = true, error = null, message = null) }
             try {
-                val recipe = repository.saveMealAsRecipe(sourceMealId, name)
-                _state.update {
-                    it.copy(
-                        recipes = (it.recipes + recipe).distinctBy(RecipeSummary::id).sortedBy(RecipeSummary::name),
-                        busy = false,
-                        message = "Recette « ${recipe.name} » enregistrée.",
-                    )
+                if (asTemplate) {
+                    val template = repository.saveMealAsTemplate(sourceMealId, cleanName)
+                    _state.update {
+                        it.copy(
+                            mealTemplates = (it.mealTemplates + template)
+                                .distinctBy(MealTemplateSummary::id)
+                                .sortedBy(MealTemplateSummary::name),
+                            busy = false,
+                            message = "Repas type « ${template.name} » enregistré.",
+                        )
+                    }
+                } else {
+                    val recipe = repository.saveMealAsRecipe(sourceMealId, cleanName)
+                    _state.update {
+                        it.copy(
+                            recipes = (it.recipes + recipe).distinctBy(RecipeSummary::id).sortedBy(RecipeSummary::name),
+                            busy = false,
+                            message = "Recette « ${recipe.name} » enregistrée.",
+                        )
+                    }
                 }
             } catch (t: Throwable) {
                 _state.update { it.copy(busy = false, error = t.message ?: "Enregistrement impossible.") }
@@ -82,47 +99,19 @@ class FeatureHubViewModel(
         }
     }
 
-    fun saveMealTemplate(sourceMealId: String, name: String) {
-        if (name.isBlank()) return
-        viewModelScope.launch {
-            _state.update { it.copy(busy = true, error = null, message = null) }
-            try {
-                val template = repository.saveMealAsTemplate(sourceMealId, name)
-                _state.update {
-                    it.copy(
-                        mealTemplates = (it.mealTemplates + template)
-                            .distinctBy(MealTemplateSummary::id)
-                            .sortedBy(MealTemplateSummary::name),
-                        busy = false,
-                        message = "Repas type « ${template.name} » enregistré.",
-                    )
-                }
-            } catch (t: Throwable) {
-                _state.update { it.copy(busy = false, error = t.message ?: "Enregistrement du repas type impossible.") }
-            }
-        }
-    }
-
     fun createFromRecipe(recipeId: String, mealType: String) {
+        val templatePrefix = "meal-template:"
         viewModelScope.launch {
             _state.update { it.copy(busy = true, error = null, createdDraft = null) }
             try {
-                val draft = repository.createMealFromRecipe(recipeId, mealType, localDate)
+                val draft = if (recipeId.startsWith(templatePrefix)) {
+                    repository.createMealFromTemplate(recipeId.removePrefix(templatePrefix), mealType, localDate)
+                } else {
+                    repository.createMealFromRecipe(recipeId, mealType, localDate)
+                }
                 _state.update { it.copy(busy = false, createdDraft = draft) }
             } catch (t: Throwable) {
                 _state.update { it.copy(busy = false, error = t.message ?: "Création du brouillon impossible.") }
-            }
-        }
-    }
-
-    fun createFromMealTemplate(templateId: String, mealType: String) {
-        viewModelScope.launch {
-            _state.update { it.copy(busy = true, error = null, createdDraft = null) }
-            try {
-                val draft = repository.createMealFromTemplate(templateId, mealType, localDate)
-                _state.update { it.copy(busy = false, createdDraft = draft) }
-            } catch (t: Throwable) {
-                _state.update { it.copy(busy = false, error = t.message ?: "Ajout du repas type impossible.") }
             }
         }
     }
