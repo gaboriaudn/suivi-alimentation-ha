@@ -10,22 +10,34 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ChevronLeft
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -41,6 +53,9 @@ import com.suivialimentation.android.data.repository.TodayData
 import com.suivialimentation.android.ui.components.AppSpacing
 import com.suivialimentation.android.ui.components.MinimumTouchTarget
 import com.suivialimentation.android.ui.components.SectionHeader
+import com.suivialimentation.android.ui.components.ScreenHeading
+import com.suivialimentation.android.ui.theme.NutritionCalories
+import com.suivialimentation.android.ui.theme.NutritionProteins
 import java.text.NumberFormat
 import java.time.LocalDate
 import java.time.ZoneId
@@ -51,9 +66,9 @@ import java.util.Locale
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TodayScreen(
+    modifier: Modifier = Modifier,
     state: TodayUiState,
     onRetry: () -> Unit,
-    onLogout: () -> Unit,
     onAddMeal: () -> Unit,
     onContinueDraft: (MealWithItems) -> Unit,
     onDuplicateMeal: (MealWithItems) -> Unit,
@@ -64,10 +79,10 @@ fun TodayScreen(
     onToday: () -> Unit,
 ) {
     Scaffold(
+        modifier = modifier,
         topBar = {
             TopAppBar(
-                title = { Text("Aujourd'hui") },
-                actions = { TextButton(onClick = onLogout) { Text("Déconnexion") } },
+                title = { Text("Suivi Alimentation") },
             )
         },
     ) { padding ->
@@ -176,7 +191,10 @@ private fun TodayContent(
         verticalArrangement = Arrangement.spacedBy(AppSpacing.md),
     ) {
         item {
-            Text(data.profile.displayName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            ScreenHeading(
+                title = if (isToday) "Aujourd’hui" else formatDate(data.localDate),
+                subtitle = data.profile.displayName,
+            )
             DateNavigator(
                 localDate = data.localDate,
                 isToday = isToday,
@@ -205,7 +223,9 @@ private fun TodayContent(
 
         item {
             Button(onClick = onAddMeal, modifier = Modifier.fillMaxWidth().heightIn(min = MinimumTouchTarget)) {
-                Text("+ Ajouter un repas")
+                Icon(Icons.Filled.Add, contentDescription = null)
+                Spacer(Modifier.width(AppSpacing.sm))
+                Text("Ajouter un repas")
             }
         }
 
@@ -246,9 +266,13 @@ private fun DateNavigator(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            TextButton(onClick = onPreviousDay, modifier = Modifier.heightIn(min = MinimumTouchTarget)) { Text("‹") }
+            IconButton(onClick = onPreviousDay, modifier = Modifier.heightIn(min = MinimumTouchTarget)) {
+                Icon(Icons.Filled.ChevronLeft, contentDescription = "Jour précédent")
+            }
             Text(formatDate(localDate), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-            TextButton(onClick = onNextDay, enabled = !isToday, modifier = Modifier.heightIn(min = MinimumTouchTarget)) { Text("›") }
+            IconButton(onClick = onNextDay, enabled = !isToday, modifier = Modifier.heightIn(min = MinimumTouchTarget)) {
+                Icon(Icons.Filled.ChevronRight, contentDescription = "Jour suivant")
+            }
         }
         if (!isToday) {
             TextButton(onClick = onToday, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Revenir à aujourd’hui") }
@@ -264,11 +288,13 @@ private fun PrimaryNutritionSummary(data: TodayData) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AppSpacing.md)) {
             GoalCard(
                 NutrientCardData("Calories", data.totals.energyKcal, data.activeGoal?.targets?.energyKcal, "kcal"),
-                Modifier.weight(1f),
+                accent = NutritionCalories,
+                modifier = Modifier.weight(1f),
             )
             GoalCard(
                 NutrientCardData("Protéines", data.totals.proteinG, data.activeGoal?.targets?.proteinG, "g"),
-                Modifier.weight(1f),
+                accent = NutritionProteins,
+                modifier = Modifier.weight(1f),
             )
         }
         Card(modifier = Modifier.fillMaxWidth()) {
@@ -287,8 +313,11 @@ private fun PrimaryNutritionSummary(data: TodayData) {
 }
 
 @Composable
-private fun GoalCard(data: NutrientCardData, modifier: Modifier = Modifier) {
-    Card(modifier = modifier) {
+private fun GoalCard(data: NutrientCardData, accent: androidx.compose.ui.graphics.Color, modifier: Modifier = Modifier) {
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.cardColors(containerColor = accent.copy(alpha = 0.12f)),
+    ) {
         Column(Modifier.padding(AppSpacing.md)) {
             Text(data.title, style = MaterialTheme.typography.titleSmall)
             val target = data.target?.let { " / ${formatNumber(it)} ${data.unit}" }.orEmpty()
@@ -340,19 +369,22 @@ private fun MealCard(
                             onClick = { menuExpanded = true },
                             enabled = !busy,
                             modifier = Modifier.heightIn(min = MinimumTouchTarget),
-                        ) { Text("⋮") }
+                        ) { Icon(Icons.Filled.MoreVert, contentDescription = "Actions du repas") }
                         DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                             DropdownMenuItem(
                                 text = { Text("Modifier le repas") },
+                                leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null) },
                                 onClick = { menuExpanded = false; onCorrectMeal(group) },
                             )
                             DropdownMenuItem(
                                 text = { Text("Dupliquer") },
+                                leadingIcon = { Icon(Icons.Filled.ContentCopy, contentDescription = null) },
                                 onClick = { menuExpanded = false; onDuplicateMeal(group) },
                             )
                             HorizontalDivider()
                             DropdownMenuItem(
                                 text = { Text("Supprimer") },
+                                leadingIcon = { Icon(Icons.Filled.DeleteOutline, contentDescription = null) },
                                 onClick = { menuExpanded = false; onDeleteMeal(group) },
                             )
                         }
