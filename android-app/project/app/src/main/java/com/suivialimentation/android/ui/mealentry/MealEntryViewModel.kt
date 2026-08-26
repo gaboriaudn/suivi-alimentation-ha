@@ -104,6 +104,19 @@ class MealEntryViewModel(
 
     fun selectMealType(type: String) {
         if (_state.value.draftMeal != null) return
+        val draft = matchingDraftForType(existingMeals, type)
+        if (draft != null) {
+            _state.update {
+                it.copy(
+                    mealType = type,
+                    draftMeal = draft.meal,
+                    items = draft.items,
+                    pendingExistingMeal = null,
+                    error = null,
+                )
+            }
+            return
+        }
         val existing = matchingMealForType(existingMeals, type)
         _state.update {
             it.copy(mealType = type, pendingExistingMeal = existing, error = null)
@@ -583,6 +596,13 @@ internal fun buildBroaderCiqualQueries(query: String): List<String> {
         .filterNot { it == normalized.trim() }
         .take(2)
 }
+
+internal fun matchingDraftForType(
+    meals: List<MealWithItems>,
+    mealType: String,
+): MealWithItems? = meals
+    .filter { it.meal.status == "draft" && it.meal.mealType == mealType }
+    .maxByOrNull { it.meal.createdAt }
 
 internal fun matchingMealForType(
     meals: List<MealWithItems>,
