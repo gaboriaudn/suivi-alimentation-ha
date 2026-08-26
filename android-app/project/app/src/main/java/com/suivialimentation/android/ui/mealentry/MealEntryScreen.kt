@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -23,11 +25,22 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.QrCodeScanner
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -39,6 +52,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import com.suivialimentation.android.data.model.CiqualFoodCandidate
 import com.suivialimentation.android.data.model.MealItem
 import com.suivialimentation.android.data.model.NutrientSnapshot
@@ -46,6 +60,7 @@ import com.suivialimentation.android.data.model.OffProductCandidate
 import com.suivialimentation.android.data.model.PersonalFoodCandidate
 import com.suivialimentation.android.data.repository.QuickFood
 import com.suivialimentation.android.ui.components.AppSpacing
+import com.suivialimentation.android.ui.components.AppSectionCard
 import com.suivialimentation.android.ui.components.MinimumTouchTarget
 import com.suivialimentation.android.ui.components.SectionHeader
 import java.text.NumberFormat
@@ -105,29 +120,32 @@ fun MealEntryScreen(
 
     state.pendingExistingMeal?.let { existing ->
         val type = mealTypes.firstOrNull { it.first == existing.meal.mealType }?.second ?: existing.meal.mealType
-        AlertDialog(
-            onDismissRequest = { if (!state.mutating) onCancelExistingMealChoice() },
-            title = { Text("$type déjà enregistré") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
-                    Text("Un repas de ce type existe déjà aujourd’hui.")
+        Dialog(onDismissRequest = { if (!state.mutating) onCancelExistingMealChoice() }) {
+            Surface(shape = MaterialTheme.shapes.large, tonalElevation = 6.dp) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().widthIn(max = 420.dp).padding(AppSpacing.lg),
+                    verticalArrangement = Arrangement.spacedBy(AppSpacing.sm),
+                ) {
+                    Text("$type déjà enregistré", style = MaterialTheme.typography.titleLarge)
+                    Text("Souhaitez-vous compléter le repas existant ou créer un second repas ?", style = MaterialTheme.typography.bodyMedium)
                     Button(
                         onClick = onComplementExistingMeal,
                         enabled = !state.mutating,
                         modifier = Modifier.fillMaxWidth().heightIn(min = MinimumTouchTarget),
-                    ) { Text("Ajouter au repas existant") }
-                    TextButton(
+                    ) { Text("Compléter le repas existant") }
+                    OutlinedButton(
                         onClick = onCreateSeparateMeal,
                         enabled = !state.mutating,
                         modifier = Modifier.fillMaxWidth().heightIn(min = MinimumTouchTarget),
-                    ) { Text("Créer un autre repas") }
+                    ) { Text("Créer un second repas") }
+                    TextButton(
+                        onClick = onCancelExistingMealChoice,
+                        enabled = !state.mutating,
+                        modifier = Modifier.fillMaxWidth().heightIn(min = MinimumTouchTarget),
+                    ) { Text("Annuler") }
                 }
-            },
-            confirmButton = {},
-            dismissButton = {
-                TextButton(onClick = onCancelExistingMealChoice, enabled = !state.mutating) { Text("Annuler") }
-            },
-        )
+            }
+        }
     }
 
     state.editingItem?.let { item ->
@@ -161,7 +179,7 @@ fun MealEntryScreen(
             TopAppBar(
                 title = { Text(if (state.draftMeal == null) "Ajouter un repas" else "Modifier le repas") },
                 navigationIcon = {
-                    TextButton(onClick = onBack, modifier = Modifier.heightIn(min = MinimumTouchTarget)) { Text("‹ Retour") }
+                    IconButton(onClick = onBack) { Icon(Icons.Filled.ArrowBack, contentDescription = "Retour") }
                 },
             )
         },
@@ -172,13 +190,15 @@ fun MealEntryScreen(
             verticalArrangement = Arrangement.spacedBy(AppSpacing.md),
         ) {
             item {
-                SectionHeader("Type de repas")
-                Spacer(Modifier.height(AppSpacing.sm))
-                MealTypeSelector(
-                    selected = state.mealType,
-                    enabled = state.draftMeal == null && !state.mutating,
-                    onSelect = onSelectMealType,
-                )
+                AppSectionCard {
+                    SectionHeader("Type de repas")
+                    Text("Choisissez le moment auquel rattacher cette saisie.", style = MaterialTheme.typography.bodySmall)
+                    MealTypeSelector(
+                        selected = state.mealType,
+                        enabled = state.draftMeal == null && !state.mutating,
+                        onSelect = onSelectMealType,
+                    )
+                }
             }
 
             if (state.error != null) {
@@ -202,43 +222,49 @@ fun MealEntryScreen(
             }
 
             item {
-                SectionHeader(if (state.draftMeal == null) "Ajouter un aliment" else "Ajouter un autre aliment")
-                Spacer(Modifier.height(AppSpacing.sm))
-                OutlinedTextField(
-                    value = state.query,
-                    onValueChange = onQueryChange,
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = !state.searching && !state.mutating,
-                    singleLine = true,
-                    label = { Text("Rechercher un aliment") },
-                    placeholder = { Text("Ex. poulet, pomme, riz") },
-                )
-                Spacer(Modifier.height(AppSpacing.sm))
-                Button(
-                    onClick = onSearch,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = MinimumTouchTarget),
-                    enabled = state.mealType != null && !state.searching && !state.mutating,
-                ) {
-                    if (state.searching) CircularProgressIndicator(modifier = Modifier.height(18.dp))
-                    else Text("Rechercher")
+                AppSectionCard {
+                    SectionHeader(if (state.draftMeal == null) "Ajouter un aliment" else "Ajouter un autre aliment")
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(AppSpacing.sm),
+                    ) {
+                        OutlinedTextField(
+                            value = state.query,
+                            onValueChange = onQueryChange,
+                            modifier = Modifier.weight(1f),
+                            enabled = !state.searching && !state.mutating,
+                            singleLine = true,
+                            label = { Text("Rechercher") },
+                            placeholder = { Text("Poulet, pomme, riz…") },
+                        )
+                        IconButton(
+                            onClick = onSearch,
+                            enabled = state.mealType != null && state.query.isNotBlank() && !state.searching && !state.mutating,
+                        ) {
+                            if (state.searching) CircularProgressIndicator(modifier = Modifier.height(22.dp))
+                            else Icon(Icons.Filled.Search, contentDescription = "Rechercher l’aliment")
+                        }
+                    }
+                    OutlinedButton(
+                        onClick = onScanBarcode,
+                        modifier = Modifier.fillMaxWidth().heightIn(min = MinimumTouchTarget),
+                        enabled = state.mealType != null && !state.barcodeSearching && !state.mutating,
+                    ) {
+                        Icon(Icons.Filled.QrCodeScanner, contentDescription = null)
+                        Spacer(Modifier.width(AppSpacing.sm))
+                        Text("Scanner un produit")
+                    }
+                    TextButton(
+                        onClick = { showManualBarcode = !showManualBarcode },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = MinimumTouchTarget),
+                        enabled = !state.barcodeSearching && !state.mutating,
+                    ) { Text(if (showManualBarcode) "Masquer la saisie manuelle" else "Saisir le code manuellement") }
                 }
                 if (state.searching) {
                     Spacer(Modifier.height(AppSpacing.sm))
                     Text("Recherche dans Mes aliments et CIQUAL…", style = MaterialTheme.typography.bodySmall)
                 }
-            }
-
-            item {
-                Button(
-                    onClick = onScanBarcode,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = MinimumTouchTarget),
-                    enabled = state.mealType != null && !state.barcodeSearching && !state.mutating,
-                ) { Text("Scanner un produit") }
-                TextButton(
-                    onClick = { showManualBarcode = !showManualBarcode },
-                    modifier = Modifier.fillMaxWidth().heightIn(min = MinimumTouchTarget),
-                    enabled = !state.barcodeSearching && !state.mutating,
-                ) { Text(if (showManualBarcode) "Masquer la saisie du code-barres" else "Saisir un code-barres") }
             }
 
             if (showManualBarcode) {
@@ -435,16 +461,14 @@ private fun DraftSummary(
                             )
                             item.nutritionSnapshot?.let { Text(primaryNutritionSummary(it), style = MaterialTheme.typography.labelSmall) }
                         }
-                        TextButton(
+                        IconButton(
                             onClick = { onEditItem(item) },
                             enabled = !busy && item.foodRefId != null,
-                            modifier = Modifier.heightIn(min = MinimumTouchTarget),
-                        ) { Text("Modifier") }
-                        TextButton(
+                        ) { Icon(Icons.Filled.Edit, contentDescription = "Modifier ${item.labelSnapshot}") }
+                        IconButton(
                             onClick = { onRemoveItem(item) },
                             enabled = !busy,
-                            modifier = Modifier.heightIn(min = MinimumTouchTarget),
-                        ) { Text("Suppr.") }
+                        ) { Icon(Icons.Filled.DeleteOutline, contentDescription = "Supprimer ${item.labelSnapshot}") }
                     }
                 }
             }
@@ -454,7 +478,11 @@ private fun DraftSummary(
                 enabled = items.isNotEmpty() && !busy,
             ) {
                 if (busy) CircularProgressIndicator(modifier = Modifier.height(18.dp))
-                else Text("Enregistrer le repas")
+                else {
+                    Icon(Icons.Filled.Add, contentDescription = null)
+                    Spacer(Modifier.width(AppSpacing.sm))
+                    Text("Enregistrer le repas")
+                }
             }
         }
     }
