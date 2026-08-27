@@ -21,6 +21,7 @@ from .websocket_nutrition_v2 import async_setup as async_setup_websocket_nutriti
 from .websocket_features_v2 import async_setup as async_setup_websocket_features_v2
 from .websocket_templates_v2 import async_setup as async_setup_websocket_templates_v2
 from .websocket_admin_v2 import async_setup as async_setup_websocket_admin_v2
+from .websocket_profile_v2 import async_setup as async_setup_websocket_profile_v2
 from .legacy_bridge_v2 import async_setup as async_setup_legacy_bridge_v2
 
 _LOGGER = logging.getLogger(__name__)
@@ -56,8 +57,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     async_setup_websocket_features_v2(hass)
     async_setup_websocket_templates_v2(hass)
     async_setup_websocket_admin_v2(hass)
+    async_setup_websocket_profile_v2(hass)
     async_setup_legacy_bridge_v2(hass)
-    _LOGGER.info("Suivi Alimentation: V2 APIs, meal templates and legacy dashboard bridge initialized")
+    _LOGGER.info("Suivi Alimentation: V2 APIs, profiles, meal templates and legacy dashboard bridge initialized")
 
     panel_url = f"/{DOMAIN}_panel"
     try:

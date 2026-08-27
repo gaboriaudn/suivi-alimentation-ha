@@ -18,6 +18,7 @@ import com.suivialimentation.android.data.model.ValidateMealResponse
 import com.suivialimentation.android.data.model.UpdateMealItemResponse
 import com.suivialimentation.android.data.model.RemoveMealItemResponse
 import com.suivialimentation.android.data.model.VoidMealResponse
+import com.suivialimentation.android.ui.profile.ProfileContext
 import com.suivialimentation.android.util.AppJson
 import java.time.LocalDate
 import java.time.ZoneId
@@ -46,355 +47,71 @@ class DefaultNutritionRepository(
     override val connectionState = ws.state
     private val _issues = MutableSharedFlow<RepositoryIssue>(extraBufferCapacity = 16)
     override val issues: Flow<RepositoryIssue> = _issues
-
-    init {
-        scope.launch {
-            connectionState.filterIsInstance<ConnectionState.Connected>().collect {
-                retryPendingOperations()
-            }
-        }
-    }
-
+    init { scope.launch { connectionState.filterIsInstance<ConnectionState.Connected>().collect { retryPendingOperations() } } }
     override suspend fun connect() = ws.start()
-
     override suspend fun disconnect() = ws.stop()
 
     override suspend fun loadToday(): TodayData {
-        val mine = api.getMyProfile()
-        val profile = mine.profile
+        val mine = api.getMyProfile(); val profile = mine.profile
         val zone = runCatching { ZoneId.of(profile.defaultTimeZone) }.getOrDefault(ZoneId.systemDefault())
-        val localDate = LocalDate.now(zone)
-
-        return loadDay(profile.id, localDate.toString())
+        return loadDay(profile.id, LocalDate.now(zone).toString())
     }
-
     override suspend fun loadDay(profileId: String, localDate: String): TodayData {
         val parsedLocalDate = LocalDate.parse(localDate)
-
-        val (profileResponse, dayResponse) = coroutineScope {
-            val p = async { api.getProfile(profileId) }
-            val d = async { api.getDay(profileId, localDate) }
-            p.await() to d.await()
-        }
+        val (profileResponse, dayResponse) = coroutineScope { val p = async { api.getProfile(profileId) }; val d = async { api.getDay(profileId, localDate) }; p.await() to d.await() }
         val profile = profileResponse.profile
-
-        revisionTracker.recordStoreRevision(profileResponse.storeRevision)
-        revisionTracker.recordStoreRevision(dayResponse.storeRevision)
-        revisionTracker.recordEntityRevision(profile.id, profile.revision)
+        revisionTracker.recordStoreRevision(profileResponse.storeRevision); revisionTracker.recordStoreRevision(dayResponse.storeRevision); revisionTracker.recordEntityRevision(profile.id, profile.revision)
         profileResponse.goalVersions.forEach { revisionTracker.recordEntityRevision(it.id, it.revision) }
         dayResponse.history?.let { revisionTracker.recordEntityRevision("${it.profileId}:${it.localDate}", it.revision) }
-        dayResponse.meals.forEach { revisionTracker.recordEntityRevision(it.id, it.revision) }
-        dayResponse.items.forEach { revisionTracker.recordEntityRevision(it.id, it.revision) }
-
+        dayResponse.meals.forEach { revisionTracker.recordEntityRevision(it.id, it.revision) }; dayResponse.items.forEach { revisionTracker.recordEntityRevision(it.id, it.revision) }
         val itemsByMeal = dayResponse.items.groupBy { it.mealId }
-        val groupedMeals = dayResponse.meals.map { meal ->
-            MealWithItems(meal, itemsByMeal[meal.id].orEmpty().sortedBy { it.position })
-        }
-
-        return TodayData(
-            profile = profile,
-            localDate = localDate,
-            activeGoal = selectGoal(profileResponse.goalVersions, parsedLocalDate),
-            totals = dayResponse.history?.totals ?: NutrientSnapshot(
-                energyKcal = 0.0,
-                proteinG = 0.0,
-            ),
-            hasHistory = dayResponse.history != null,
-            meals = groupedMeals,
-            storeRevision = maxOf(profileResponse.storeRevision, dayResponse.storeRevision),
-        )
+        return TodayData(profile, localDate, selectGoal(profileResponse.goalVersions, parsedLocalDate), dayResponse.history?.totals ?: NutrientSnapshot(energyKcal = 0.0, proteinG = 0.0), dayResponse.history != null, dayResponse.meals.map { MealWithItems(it, itemsByMeal[it.id].orEmpty().sortedBy { item -> item.position }) }, maxOf(profileResponse.storeRevision, dayResponse.storeRevision))
     }
-
-    override suspend fun changes(profileId: String): Flow<Unit> =
-        api.subscribeToV2Changes(profileId).map { Unit }
-
+    override suspend fun changes(profileId: String): Flow<Unit> = api.subscribeToV2Changes(profileId).map { Unit }
+    override suspend fun loadProfileContext(profileId: String): ProfileContext = AppJson.decodeFromJsonElement(ProfileContext.serializer(), api.rawCommand("suivi_alimentation/v2/profile/get", buildJsonObject { put("profile_id", profileId) }))
+    override suspend fun updateProfileContext(profileId: String, settings: JsonObject, expectedProfileRevision: Long): ProfileContext {
+        val result = executeMutation("suivi_alimentation/v2/profile/update", buildJsonObject { put("profile_id", profileId); put("settings", settings); put("expected_profile_revision", expectedProfileRevision) })
+        return AppJson.decodeFromJsonElement(ProfileContext.serializer(), result)
+    }
     override suspend fun loadQuickFoods(profileId: String): QuickFoods {
-        val (profile, recent) = coroutineScope {
-            val p = async { api.getProfile(profileId) }
-            val r = async { api.getRecent(profileId) }
-            p.await() to r.await()
-        }
-        val foodsById = profile.foods.associateBy { it.id }
-        val favoriteIds = recent.favorites.mapTo(linkedSetOf()) { it.foodRefId }
-        val favorites = favoriteIds.mapNotNull { id ->
-            foodsById[id]?.let { QuickFood(it, isFavorite = true) }
-        }
-        val recents = recent.items.mapNotNull { item ->
-            val id = item.foodRefId ?: return@mapNotNull null
-            foodsById[id]?.let {
-                QuickFood(it, isFavorite = id in favoriteIds, lastUsedLocalDate = item.lastUsedLocalDate)
-            }
-        }
-        return QuickFoods(favorites, recents)
+        val (profile, recent) = coroutineScope { val p = async { api.getProfile(profileId) }; val r = async { api.getRecent(profileId) }; p.await() to r.await() }
+        val foodsById = profile.foods.associateBy { it.id }; val favoriteIds = recent.favorites.mapTo(linkedSetOf()) { it.foodRefId }
+        return QuickFoods(favoriteIds.mapNotNull { id -> foodsById[id]?.let { QuickFood(it, true) } }, recent.items.mapNotNull { item -> item.foodRefId?.let { id -> foodsById[id]?.let { QuickFood(it, id in favoriteIds, item.lastUsedLocalDate) } } })
     }
-
-    override suspend fun setFavorite(profileId: String, foodRefId: String, favorite: Boolean) {
-        executeMutation(
-            commandType = "suivi_alimentation/v2/set_favorite",
-            payload = buildJsonObject {
-                put("profile_id", profileId)
-                put("food_ref_id", foodRefId)
-                put("favorite", favorite)
-            },
-        )
+    override suspend fun setFavorite(profileId: String, foodRefId: String, favorite: Boolean) { executeMutation("suivi_alimentation/v2/set_favorite", buildJsonObject { put("profile_id", profileId); put("food_ref_id", foodRefId); put("favorite", favorite) }) }
+    override suspend fun searchCiqual(profileId: String, query: String, limit: Int): List<CiqualFoodCandidate> = api.searchCiqual(profileId, query.trim(), limit).items
+    override suspend fun searchPersonalFoods(profileId: String, query: String, limit: Int): List<PersonalFoodCandidate> = api.searchPersonalFoods(profileId, query.trim(), limit).items
+    override suspend fun importCiqualFood(profileId: String, ciqualCode: String): ImportFoodResponse = AppJson.decodeFromJsonElement(ImportFoodResponse.serializer(), executeMutation("suivi_alimentation/v2/import_ciqual_food", buildJsonObject { put("profile_id", profileId); put("ciqual_code", ciqualCode) }))
+    override suspend fun importPersonalFood(profileId: String, legacyFoodId: String): ImportFoodResponse = AppJson.decodeFromJsonElement(ImportFoodResponse.serializer(), executeMutation("suivi_alimentation/v2/import_personal_food", buildJsonObject { put("profile_id", profileId); put("legacy_food_id", legacyFoodId) }))
+    override suspend fun getOffProduct(profileId: String, barcode: String): OffProductCandidate = api.getOffProduct(profileId, normalizeBarcode(barcode))
+    override suspend fun importOffFood(profileId: String, barcode: String): ImportFoodResponse = AppJson.decodeFromJsonElement(ImportFoodResponse.serializer(), executeMutation("suivi_alimentation/v2/import_off_food", buildJsonObject { put("profile_id", profileId); put("barcode", normalizeBarcode(barcode)) }))
+    override suspend fun createMeal(profileId: String, mealType: String, localDate: String): CreateMealResponse = AppJson.decodeFromJsonElement(CreateMealResponse.serializer(), executeMutation("suivi_alimentation/v2/create_meal", buildJsonObject { put("profile_id", profileId); put("meal_type", mealType); put("consumption_local_date", localDate) }))
+    override suspend fun addFoodToMeal(mealId: String, foodId: String, quantityValue: Double, quantityUnit: String, portionId: String?, expectedMealRevision: Long): AddFoodToMealResponse {
+        require(quantityValue > 0.0); return AppJson.decodeFromJsonElement(AddFoodToMealResponse.serializer(), executeMutation("suivi_alimentation/v2/add_food_to_meal", buildJsonObject { put("meal_id", mealId); put("food_id", foodId); put("quantity_value", quantityValue); put("quantity_unit", quantityUnit); portionId?.let { put("portion_id", it) }; put("expected_meal_revision", expectedMealRevision) }))
     }
-
-    override suspend fun searchCiqual(profileId: String, query: String, limit: Int): List<CiqualFoodCandidate> =
-        api.searchCiqual(profileId, query.trim(), limit).items
-
-    override suspend fun searchPersonalFoods(
-        profileId: String,
-        query: String,
-        limit: Int,
-    ): List<PersonalFoodCandidate> = api.searchPersonalFoods(profileId, query.trim(), limit).items
-
-    override suspend fun importCiqualFood(profileId: String, ciqualCode: String): ImportFoodResponse {
-        val result = executeMutation(
-            commandType = "suivi_alimentation/v2/import_ciqual_food",
-            payload = buildJsonObject {
-                put("profile_id", profileId)
-                put("ciqual_code", ciqualCode)
-            },
-        )
-        return AppJson.decodeFromJsonElement(ImportFoodResponse.serializer(), result)
+    override suspend fun validateMeal(mealId: String, expectedMealRevision: Long): ValidateMealResponse = AppJson.decodeFromJsonElement(ValidateMealResponse.serializer(), executeMutation("suivi_alimentation/v2/validate_meal", buildJsonObject { put("meal_id", mealId); put("expected_meal_revision", expectedMealRevision) }))
+    override suspend fun duplicateMeal(sourceMealId: String, targetLocalDate: String): DuplicateMealResponse = AppJson.decodeFromJsonElement(DuplicateMealResponse.serializer(), executeMutation("suivi_alimentation/v2/duplicate_meal", buildJsonObject { put("source_meal_id", sourceMealId); put("target_local_date", targetLocalDate) }))
+    override suspend fun startMealCorrection(sourceMealId: String): DuplicateMealResponse = AppJson.decodeFromJsonElement(DuplicateMealResponse.serializer(), executeMutation("suivi_alimentation/v2/start_meal_correction", buildJsonObject { put("source_meal_id", sourceMealId) }))
+    override suspend fun updateMealItemQuantity(itemId: String, quantityValue: Double, quantityUnit: String, portionId: String?, expectedItemRevision: Long, expectedMealRevision: Long): UpdateMealItemResponse {
+        require(quantityValue > 0.0); return AppJson.decodeFromJsonElement(UpdateMealItemResponse.serializer(), executeMutation("suivi_alimentation/v2/update_food_meal_item", buildJsonObject { put("item_id", itemId); put("quantity_value", quantityValue); put("quantity_unit", quantityUnit); portionId?.let { put("portion_id", it) }; put("expected_item_revision", expectedItemRevision); put("expected_meal_revision", expectedMealRevision) }))
     }
+    override suspend fun removeMealItem(itemId: String, expectedItemRevision: Long, expectedMealRevision: Long): RemoveMealItemResponse = AppJson.decodeFromJsonElement(RemoveMealItemResponse.serializer(), executeMutation("suivi_alimentation/v2/remove_meal_item", buildJsonObject { put("item_id", itemId); put("expected_item_revision", expectedItemRevision); put("expected_meal_revision", expectedMealRevision) }))
+    override suspend fun voidMeal(mealId: String, expectedMealRevision: Long): VoidMealResponse = AppJson.decodeFromJsonElement(VoidMealResponse.serializer(), executeMutation("suivi_alimentation/v2/void_meal", buildJsonObject { put("meal_id", mealId); put("expected_meal_revision", expectedMealRevision) }))
 
-    override suspend fun importPersonalFood(profileId: String, legacyFoodId: String): ImportFoodResponse {
-        val result = executeMutation(
-            commandType = "suivi_alimentation/v2/import_personal_food",
-            payload = buildJsonObject {
-                put("profile_id", profileId)
-                put("legacy_food_id", legacyFoodId)
-            },
-        )
-        return AppJson.decodeFromJsonElement(ImportFoodResponse.serializer(), result)
+    override suspend fun executeMutation(commandType: String, payload: JsonObject, operationId: String?): JsonElement {
+        val id = operationId ?: java.util.UUID.randomUUID().toString(); val payloadWithOperationId = buildJsonObject { payload.forEach { (key, value) -> put(key, value) }; put("operation_id", id) }
+        return executePending(operationStore.prepare(commandType, payloadWithOperationId, id))
     }
-
-    override suspend fun getOffProduct(profileId: String, barcode: String): OffProductCandidate =
-        api.getOffProduct(profileId, normalizeBarcode(barcode))
-
-    override suspend fun importOffFood(profileId: String, barcode: String): ImportFoodResponse {
-        val result = executeMutation(
-            commandType = "suivi_alimentation/v2/import_off_food",
-            payload = buildJsonObject {
-                put("profile_id", profileId)
-                put("barcode", normalizeBarcode(barcode))
-            },
-        )
-        return AppJson.decodeFromJsonElement(ImportFoodResponse.serializer(), result)
-    }
-
-    override suspend fun createMeal(profileId: String, mealType: String, localDate: String): CreateMealResponse {
-        val result = executeMutation(
-            commandType = "suivi_alimentation/v2/create_meal",
-            payload = buildJsonObject {
-                put("profile_id", profileId)
-                put("meal_type", mealType)
-                put("consumption_local_date", localDate)
-            },
-        )
-        return AppJson.decodeFromJsonElement(CreateMealResponse.serializer(), result)
-    }
-
-    override suspend fun addFoodToMeal(
-        mealId: String,
-        foodId: String,
-        quantityValue: Double,
-        quantityUnit: String,
-        portionId: String?,
-        expectedMealRevision: Long,
-    ): AddFoodToMealResponse {
-        require(quantityValue > 0.0) { "La quantité doit être supérieure à zéro." }
-        val result = executeMutation(
-            commandType = "suivi_alimentation/v2/add_food_to_meal",
-            payload = buildJsonObject {
-                put("meal_id", mealId)
-                put("food_id", foodId)
-                put("quantity_value", quantityValue)
-                put("quantity_unit", quantityUnit)
-                portionId?.let { put("portion_id", it) }
-                put("expected_meal_revision", expectedMealRevision)
-            },
-        )
-        return AppJson.decodeFromJsonElement(AddFoodToMealResponse.serializer(), result)
-    }
-
-    override suspend fun validateMeal(mealId: String, expectedMealRevision: Long): ValidateMealResponse {
-        val result = executeMutation(
-            commandType = "suivi_alimentation/v2/validate_meal",
-            payload = buildJsonObject {
-                put("meal_id", mealId)
-                put("expected_meal_revision", expectedMealRevision)
-            },
-        )
-        return AppJson.decodeFromJsonElement(ValidateMealResponse.serializer(), result)
-    }
-
-    override suspend fun duplicateMeal(sourceMealId: String, targetLocalDate: String): DuplicateMealResponse {
-        val result = executeMutation(
-            commandType = "suivi_alimentation/v2/duplicate_meal",
-            payload = buildJsonObject {
-                put("source_meal_id", sourceMealId)
-                put("target_local_date", targetLocalDate)
-            },
-        )
-        return AppJson.decodeFromJsonElement(DuplicateMealResponse.serializer(), result)
-    }
-
-    override suspend fun startMealCorrection(sourceMealId: String): DuplicateMealResponse {
-        val result = executeMutation(
-            commandType = "suivi_alimentation/v2/start_meal_correction",
-            payload = buildJsonObject { put("source_meal_id", sourceMealId) },
-        )
-        return AppJson.decodeFromJsonElement(DuplicateMealResponse.serializer(), result)
-    }
-
-    override suspend fun updateMealItemQuantity(
-        itemId: String,
-        quantityValue: Double,
-        quantityUnit: String,
-        portionId: String?,
-        expectedItemRevision: Long,
-        expectedMealRevision: Long,
-    ): UpdateMealItemResponse {
-        require(quantityValue > 0.0) { "La quantité doit être supérieure à zéro." }
-        val result = executeMutation(
-            commandType = "suivi_alimentation/v2/update_food_meal_item",
-            payload = buildJsonObject {
-                put("item_id", itemId)
-                put("quantity_value", quantityValue)
-                put("quantity_unit", quantityUnit)
-                portionId?.let { put("portion_id", it) }
-                put("expected_item_revision", expectedItemRevision)
-                put("expected_meal_revision", expectedMealRevision)
-            },
-        )
-        return AppJson.decodeFromJsonElement(UpdateMealItemResponse.serializer(), result)
-    }
-
-    override suspend fun removeMealItem(
-        itemId: String,
-        expectedItemRevision: Long,
-        expectedMealRevision: Long,
-    ): RemoveMealItemResponse {
-        val result = executeMutation(
-            commandType = "suivi_alimentation/v2/remove_meal_item",
-            payload = buildJsonObject {
-                put("item_id", itemId)
-                put("expected_item_revision", expectedItemRevision)
-                put("expected_meal_revision", expectedMealRevision)
-            },
-        )
-        return AppJson.decodeFromJsonElement(RemoveMealItemResponse.serializer(), result)
-    }
-
-    override suspend fun voidMeal(mealId: String, expectedMealRevision: Long): VoidMealResponse {
-        val result = executeMutation(
-            commandType = "suivi_alimentation/v2/void_meal",
-            payload = buildJsonObject {
-                put("meal_id", mealId)
-                put("expected_meal_revision", expectedMealRevision)
-            },
-        )
-        return AppJson.decodeFromJsonElement(VoidMealResponse.serializer(), result)
-    }
-
-    override suspend fun executeMutation(
-        commandType: String,
-        payload: JsonObject,
-        operationId: String?,
-    ): JsonElement {
-        val id = operationId ?: java.util.UUID.randomUUID().toString()
-        val payloadWithOperationId = buildJsonObject {
-            payload.forEach { (key, value) -> put(key, value) }
-            put("operation_id", id)
-        }
-        val pending = operationStore.prepare(commandType, payloadWithOperationId, id)
-        return executePending(pending)
-    }
-
-    override suspend fun retryPendingOperations() {
-        // A pending operation means the process died or the transport was interrupted
-        // before the client received a definitive result. The current v2 backend records
-        // operation ids but cannot replay the original mutation result reliably for every
-        // command. Re-sending blindly could therefore duplicate a meal or item. Discard
-        // the ambiguous client retry and let the UI reload Home Assistant, the source of
-        // truth; the user can safely continue from the draft or validated state found there.
-        for (pending in operationStore.list()) {
-            operationStore.complete(pending.operationId)
-            _issues.tryEmit(
-                RepositoryIssue.MutationRejected(
-                    pending.operationId,
-                    "Une écriture interrompue n'a pas été rejouée automatiquement. Les données Home Assistant doivent être rechargées avant de continuer.",
-                ),
-            )
-        }
-    }
-
+    override suspend fun retryPendingOperations() { for (pending in operationStore.list()) { operationStore.complete(pending.operationId); _issues.tryEmit(RepositoryIssue.MutationRejected(pending.operationId, "Une écriture interrompue n'a pas été rejouée automatiquement. Les données Home Assistant doivent être rechargées avant de continuer.")) } }
     private suspend fun executePending(pending: PendingOperation): JsonElement {
         val payload = AppJson.parseToJsonElement(pending.payloadJson) as JsonObject
-        return try {
-            val result = api.rawCommand(pending.commandType, payload)
-            operationStore.complete(pending.operationId)
-            recordRevisionsFromResult(result)
-            result
-        } catch (e: HomeAssistantCommandException) {
-            operationStore.complete(pending.operationId)
-            if (e.isConflict) {
-                _issues.tryEmit(RepositoryIssue.Conflict(pending.operationId, e.commandCode, e.message))
-            } else {
-                _issues.tryEmit(RepositoryIssue.MutationRejected(pending.operationId, e.message))
-            }
-            throw e
-        } catch (e: TransportDisconnectedException) {
-            // Do not replay this mutation automatically. It may already have committed
-            // server-side even though the response was lost. Home Assistant will be
-            // reloaded on reconnect and remains the only source of truth.
-            operationStore.complete(pending.operationId)
-            _issues.tryEmit(
-                RepositoryIssue.MutationRejected(
-                    pending.operationId,
-                    "Connexion interrompue pendant l'écriture. Vérifiez les données Home Assistant avant de réessayer.",
-                ),
-            )
-            throw e
-        }
+        return try { val result = api.rawCommand(pending.commandType, payload); operationStore.complete(pending.operationId); recordRevisionsFromResult(result); result }
+        catch (e: HomeAssistantCommandException) { operationStore.complete(pending.operationId); if (e.isConflict) _issues.tryEmit(RepositoryIssue.Conflict(pending.operationId, e.commandCode, e.message)) else _issues.tryEmit(RepositoryIssue.MutationRejected(pending.operationId, e.message)); throw e }
+        catch (e: TransportDisconnectedException) { operationStore.complete(pending.operationId); _issues.tryEmit(RepositoryIssue.MutationRejected(pending.operationId, "Connexion interrompue pendant l'écriture. Vérifiez les données Home Assistant avant de réessayer.")); throw e }
     }
-
-    private fun recordRevisionsFromResult(result: JsonElement) {
-        val obj = result as? JsonObject ?: return
-        obj["storeRevision"]?.jsonPrimitive?.content?.toLongOrNull()?.let(revisionTracker::recordStoreRevision)
-        recordEntityObject(obj)
-        listOf("meal", "item", "food", "entity").forEach { key ->
-            (obj[key] as? JsonObject)?.let(::recordEntityObject)
-        }
-        (obj["dailyHistory"] as? JsonObject)?.let { history ->
-            val profileId = history["profileId"]?.jsonPrimitive?.content
-            val localDate = history["localDate"]?.jsonPrimitive?.content
-            val revision = history["revision"]?.jsonPrimitive?.content?.toLongOrNull()
-            if (profileId != null && localDate != null && revision != null) {
-                revisionTracker.recordEntityRevision("$profileId:$localDate", revision)
-            }
-        }
-    }
-
-    private fun recordEntityObject(obj: JsonObject) {
-        val id = obj["id"]?.jsonPrimitive?.content
-        val revision = obj["revision"]?.jsonPrimitive?.content?.toLongOrNull()
-        if (id != null && revision != null) revisionTracker.recordEntityRevision(id, revision)
-    }
-
-    private fun selectGoal(goals: List<GoalVersion>, localDate: LocalDate): GoalVersion? = goals
-        .filter { goal ->
-            val from = runCatching { LocalDate.parse(goal.effectiveFromLocalDate) }.getOrNull() ?: return@filter false
-            val to = goal.effectiveToLocalDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
-            !localDate.isBefore(from) && (to == null || !localDate.isAfter(to))
-        }
-        .maxByOrNull { it.versionNumber }
+    private fun recordRevisionsFromResult(result: JsonElement) { val obj = result as? JsonObject ?: return; obj["storeRevision"]?.jsonPrimitive?.content?.toLongOrNull()?.let(revisionTracker::recordStoreRevision); recordEntityObject(obj); listOf("meal", "item", "food", "entity", "profile").forEach { key -> (obj[key] as? JsonObject)?.let(::recordEntityObject) } }
+    private fun recordEntityObject(obj: JsonObject) { val id = obj["id"]?.jsonPrimitive?.content; val revision = obj["revision"]?.jsonPrimitive?.content?.toLongOrNull(); if (id != null && revision != null) revisionTracker.recordEntityRevision(id, revision) }
+    private fun selectGoal(goals: List<GoalVersion>, localDate: LocalDate): GoalVersion? = goals.filter { goal -> val from = runCatching { LocalDate.parse(goal.effectiveFromLocalDate) }.getOrNull() ?: return@filter false; val to = goal.effectiveToLocalDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() }; !localDate.isBefore(from) && (to == null || !localDate.isAfter(to)) }.maxByOrNull { it.versionNumber }
 }
 
-internal fun normalizeBarcode(value: String): String {
-    val digits = value.filter(Char::isDigit)
-    require(digits.length in 8..14) { "Le code-barres doit contenir entre 8 et 14 chiffres." }
-    return digits
-}
+internal fun normalizeBarcode(value: String): String { val digits = value.filter(Char::isDigit); require(digits.length in 8..14) { "Le code-barres doit contenir entre 8 et 14 chiffres." }; return digits }
