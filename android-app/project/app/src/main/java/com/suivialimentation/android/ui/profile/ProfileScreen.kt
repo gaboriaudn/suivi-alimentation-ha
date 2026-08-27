@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Button
@@ -17,15 +18,16 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import com.suivialimentation.android.ui.components.AppSpacing
+import com.suivialimentation.android.ui.components.MinimumTouchTarget
 
 @Composable
 fun ProfileScreen(
@@ -33,19 +35,32 @@ fun ProfileScreen(
     state: ProfileUiState,
     onSave: (ProfileForm) -> Unit,
     onReload: () -> Unit,
+    onLogout: () -> Unit,
 ) {
     val context = state.context
     if (state.loading && context == null) {
-        Column(modifier.fillMaxSize(), verticalArrangement = Arrangement.Center) { CircularProgressIndicator() }
-        return
-    }
-    if (context == null) {
-        Column(modifier.fillMaxSize().padding(AppSpacing.lg)) {
-            Text(state.error ?: "Profil indisponible")
-            Button(onClick = onReload) { Text("Réessayer") }
+        Column(
+            modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            CircularProgressIndicator()
+            Text("Chargement du profil…", modifier = Modifier.padding(top = AppSpacing.sm))
         }
         return
     }
+    if (context == null) {
+        Column(
+            modifier.fillMaxSize().padding(AppSpacing.lg),
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.md),
+        ) {
+            Text("Profil", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+            Text(state.error ?: "Profil indisponible", color = MaterialTheme.colorScheme.error)
+            Button(onClick = onReload, modifier = Modifier.fillMaxWidth()) { Text("Réessayer") }
+        }
+        return
+    }
+
     var form by remember(context.profile.revision, context.storeRevision) { mutableStateOf(ProfileForm.from(context)) }
     LazyColumn(
         modifier = modifier.fillMaxSize(),
@@ -61,11 +76,47 @@ fun ProfileScreen(
                 Column(Modifier.padding(AppSpacing.md), verticalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
                     Text("Informations personnelles", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     ChoiceField("Sexe", form.sex, listOf("male" to "Homme", "female" to "Femme")) { form = form.copy(sex = it) }
-                    OutlinedTextField(form.birthDate, { form = form.copy(birthDate = it) }, Modifier.fillMaxWidth(), label = { Text("Date de naissance (AAAA-MM-JJ)") }, singleLine = true)
-                    OutlinedTextField(form.heightCm, { form = form.copy(heightCm = it.filter { c -> c.isDigit() || c == '.' || c == ',' }) }, Modifier.fillMaxWidth(), label = { Text("Taille (cm)") }, singleLine = true)
-                    ChoiceField("Niveau d’activité", form.activityLevel, listOf("sedentary" to "Sédentaire", "light" to "Légère", "moderate" to "Modérée", "active" to "Active", "very_active" to "Très active")) { form = form.copy(activityLevel = it) }
-                    ChoiceField("Objectif", form.objective, listOf("lose" to "Perte de poids", "maintain" to "Maintien", "gain" to "Prise de poids")) { form = form.copy(objective = it) }
-                    OutlinedTextField(form.targetWeightKg, { form = form.copy(targetWeightKg = it.filter { c -> c.isDigit() || c == '.' || c == ',' }) }, Modifier.fillMaxWidth(), label = { Text("Poids cible (kg)") }, singleLine = true)
+                    OutlinedTextField(
+                        form.birthDate,
+                        { form = form.copy(birthDate = it) },
+                        Modifier.fillMaxWidth(),
+                        label = { Text("Date de naissance (AAAA-MM-JJ)") },
+                        singleLine = true,
+                    )
+                    OutlinedTextField(
+                        form.heightCm,
+                        { form = form.copy(heightCm = it.filter { c -> c.isDigit() || c == '.' || c == ',' }) },
+                        Modifier.fillMaxWidth(),
+                        label = { Text("Taille (cm)") },
+                        singleLine = true,
+                    )
+                    ChoiceField(
+                        "Niveau d’activité",
+                        form.activityLevel,
+                        listOf(
+                            "sedentary" to "Sédentaire",
+                            "light" to "Légère",
+                            "moderate" to "Modérée",
+                            "active" to "Active",
+                            "very_active" to "Très active",
+                        ),
+                    ) { form = form.copy(activityLevel = it) }
+                    ChoiceField(
+                        "Objectif",
+                        form.objective,
+                        listOf(
+                            "lose" to "Perte de poids",
+                            "maintain" to "Maintien",
+                            "gain" to "Prise de poids",
+                        ),
+                    ) { form = form.copy(objective = it) }
+                    OutlinedTextField(
+                        form.targetWeightKg,
+                        { form = form.copy(targetWeightKg = it.filter { c -> c.isDigit() || c == '.' || c == ',' }) },
+                        Modifier.fillMaxWidth(),
+                        label = { Text("Poids cible (kg)") },
+                        singleLine = true,
+                    )
                 }
             }
         }
@@ -73,17 +124,33 @@ fun ProfileScreen(
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(AppSpacing.md), verticalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
                     Text("Poids", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Synchroniser depuis Home Assistant")
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Text("Synchroniser depuis Home Assistant", modifier = Modifier.weight(1f))
                         Switch(checked = form.useHaWeight, onCheckedChange = { form = form.copy(useHaWeight = it) })
                     }
                     if (form.useHaWeight) {
-                        OutlinedTextField(form.weightEntityId, { form = form.copy(weightEntityId = it) }, Modifier.fillMaxWidth(), label = { Text("Entité Home Assistant") }, singleLine = true)
+                        OutlinedTextField(
+                            form.weightEntityId,
+                            { form = form.copy(weightEntityId = it) },
+                            Modifier.fillMaxWidth(),
+                            label = { Text("Entité Home Assistant") },
+                            singleLine = true,
+                        )
                         val resolved = context.resolvedWeight
-                        Text(if (resolved.available && resolved.valueKg != null) "Poids actuel : ${resolved.valueKg} kg" else "Poids Home Assistant indisponible", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            if (resolved.available && resolved.valueKg != null) "Poids actuel : ${resolved.valueKg} kg" else "Poids Home Assistant indisponible",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
                         resolved.lastUpdated?.let { Text("Dernière mesure : $it", style = MaterialTheme.typography.bodySmall) }
                     } else {
-                        OutlinedTextField(form.manualWeightKg, { form = form.copy(manualWeightKg = it.filter { c -> c.isDigit() || c == '.' || c == ',' }) }, Modifier.fillMaxWidth(), label = { Text("Poids actuel (kg)") }, singleLine = true)
+                        OutlinedTextField(
+                            form.manualWeightKg,
+                            { form = form.copy(manualWeightKg = it.filter { c -> c.isDigit() || c == '.' || c == ',' }) },
+                            Modifier.fillMaxWidth(),
+                            label = { Text("Poids actuel (kg)") },
+                            singleLine = true,
+                        )
                     }
                 }
             }
@@ -92,8 +159,8 @@ fun ProfileScreen(
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(AppSpacing.md), verticalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
                     Text("Objectifs nutritionnels", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Calcul automatique")
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Text("Calcul automatique", modifier = Modifier.weight(1f))
                         Switch(checked = form.automaticGoals, onCheckedChange = { form = form.copy(automaticGoals = it) })
                     }
                     if (form.automaticGoals) {
@@ -101,18 +168,48 @@ fun ProfileScreen(
                         if (rec != null) {
                             Text("Proposition : ${rec.energyKcal?.toInt()} kcal · ${rec.proteinG?.toInt()} g de protéines", fontWeight = FontWeight.SemiBold)
                             Text("Calcul basé sur le profil, le poids actuel et le niveau d’activité.", style = MaterialTheme.typography.bodySmall)
-                        } else Text("Complétez le profil et rendez le poids disponible pour calculer les objectifs.")
+                        } else {
+                            Text("Complétez le sexe, la date de naissance, la taille et rendez le poids disponible pour calculer les objectifs.")
+                        }
                     } else {
-                        OutlinedTextField(form.manualEnergyKcal, { form = form.copy(manualEnergyKcal = it.filter(Char::isDigit)) }, Modifier.fillMaxWidth(), label = { Text("Objectif calories (kcal)") }, singleLine = true)
-                        OutlinedTextField(form.manualProteinG, { form = form.copy(manualProteinG = it.filter { c -> c.isDigit() || c == '.' || c == ',' }) }, Modifier.fillMaxWidth(), label = { Text("Objectif protéines (g)") }, singleLine = true)
+                        OutlinedTextField(
+                            form.manualEnergyKcal,
+                            { form = form.copy(manualEnergyKcal = it.filter(Char::isDigit)) },
+                            Modifier.fillMaxWidth(),
+                            label = { Text("Objectif calories (kcal)") },
+                            singleLine = true,
+                        )
+                        OutlinedTextField(
+                            form.manualProteinG,
+                            { form = form.copy(manualProteinG = it.filter { c -> c.isDigit() || c == '.' || c == ',' }) },
+                            Modifier.fillMaxWidth(),
+                            label = { Text("Objectif protéines (g)") },
+                            singleLine = true,
+                        )
                     }
                 }
             }
         }
         state.error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
-        state.message?.let { item { Text(it) } }
+        state.message?.let { item { Text(it, color = MaterialTheme.colorScheme.primary) } }
         item {
-            Button(onClick = { onSave(form) }, enabled = !state.saving, modifier = Modifier.fillMaxWidth()) { Text(if (state.saving) "Enregistrement…" else "Enregistrer") }
+            Button(
+                onClick = { onSave(form) },
+                enabled = !state.saving,
+                modifier = Modifier.fillMaxWidth().heightIn(min = MinimumTouchTarget),
+            ) { Text(if (state.saving) "Enregistrement…" else "Enregistrer le profil") }
+        }
+        item {
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(AppSpacing.md), verticalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
+                    Text("Compte et connexion", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text("La déconnexion de Home Assistant est volontaire et reste séparée des actions d’ajout.", style = MaterialTheme.typography.bodySmall)
+                    OutlinedButton(
+                        onClick = onLogout,
+                        modifier = Modifier.fillMaxWidth().heightIn(min = MinimumTouchTarget),
+                    ) { Text("Se déconnecter de Home Assistant") }
+                }
+            }
         }
     }
 }
@@ -126,7 +223,12 @@ private fun ChoiceField(label: String, value: String, options: List<Pair<String,
             Text(options.firstOrNull { it.first == value }?.second ?: "Choisir")
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            options.forEach { option -> DropdownMenuItem(text = { Text(option.second) }, onClick = { expanded = false; onSelect(option.first) }) }
+            options.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(option.second) },
+                    onClick = { expanded = false; onSelect(option.first) },
+                )
+            }
         }
     }
 }
