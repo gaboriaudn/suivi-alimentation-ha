@@ -18,7 +18,7 @@ import kotlinx.coroutines.launch
 
 sealed interface AppUiState {
     data object Loading : AppUiState
-    data class SignedOut(val error: String? = null) : AppUiState
+    data class SignedOut(val error: String? = null, val instanceUrl: String = "") : AppUiState
     data object Authenticating : AppUiState
     data class SignedIn(val sessionGeneration: Long) : AppUiState
 }
@@ -41,7 +41,7 @@ class AppViewModel(
         viewModelScope.launch {
             val session = authManager.restore()
             if (session == null) {
-                _state.value = AppUiState.SignedOut()
+                _state.value = AppUiState.SignedOut(instanceUrl = authManager.lastInstanceUrl())
             } else {
                 generation += 1
                 _state.value = AppUiState.SignedIn(generation)
@@ -51,7 +51,10 @@ class AppViewModel(
         viewModelScope.launch {
             repository.connectionState.collect { connection ->
                 if (connection is ConnectionState.AuthenticationRequired && _state.value is AppUiState.SignedIn) {
-                    _state.value = AppUiState.SignedOut("La session Home Assistant a expiré. Reconnectez-vous.")
+                    _state.value = AppUiState.SignedOut(
+                        error = "La session Home Assistant a expiré. Reconnectez-vous.",
+                        instanceUrl = authManager.lastInstanceUrl(),
+                    )
                 }
             }
         }
@@ -64,14 +67,21 @@ class AppViewModel(
                 _events.tryEmit(AppEvent.OpenAuthorization(Uri.parse(request.authorizationUrl)))
             }
             .onFailure { error ->
-                _state.value = AppUiState.SignedOut(error.message ?: "Impossible de démarrer l'authentification.")
+                viewModelScope.launch {
+                    _state.value = AppUiState.SignedOut(
+                        error = error.message ?: "Impossible de démarrer l'authentification.",
+                        instanceUrl = instanceUrl,
+                    )
+                }
             }
     }
 
     fun cancelLogin() {
         if (_state.value is AppUiState.Authenticating) {
             authManager.cancelPendingAuthorization()
-            _state.value = AppUiState.SignedOut()
+            viewModelScope.launch {
+                _state.value = AppUiState.SignedOut(instanceUrl = authManager.lastInstanceUrl())
+            }
         }
     }
 
@@ -84,7 +94,10 @@ class AppViewModel(
                     _state.value = AppUiState.SignedIn(generation)
                     repository.connect()
                 }
-                is AuthResult.Failure -> _state.value = AppUiState.SignedOut(result.message)
+                is AuthResult.Failure -> _state.value = AppUiState.SignedOut(
+                    error = result.message,
+                    instanceUrl = authManager.lastInstanceUrl(),
+                )
             }
         }
     }
@@ -93,7 +106,7 @@ class AppViewModel(
         viewModelScope.launch {
             repository.disconnect()
             authManager.revokeAndClear()
-            _state.value = AppUiState.SignedOut()
+            _state.value = AppUiState.SignedOut(instanceUrl = authManager.lastInstanceUrl())
         }
     }
 
