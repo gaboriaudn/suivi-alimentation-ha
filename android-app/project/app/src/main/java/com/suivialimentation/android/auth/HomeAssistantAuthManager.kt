@@ -33,6 +33,8 @@ class HomeAssistantAuthManager(
         cachedSession ?: tokenStore.load()?.also { cachedSession = it }
     }
 
+    suspend fun lastInstanceUrl(): String = tokenStore.loadLastInstanceUrl().orEmpty()
+
     override suspend fun currentSession(): AuthSession? = restore()
 
     fun cancelPendingAuthorization() {
