@@ -41,6 +41,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
+import com.suivialimentation.android.data.photo.appendPhotoSuggestionsToMeal
 import com.suivialimentation.android.data.repository.MealWithItems
 import com.suivialimentation.android.di.AppContainer
 import com.suivialimentation.android.ui.AppEvent
@@ -54,6 +55,7 @@ import com.suivialimentation.android.ui.features.FeatureHubViewModel
 import com.suivialimentation.android.ui.mealentry.MealEntryScreen
 import com.suivialimentation.android.ui.mealentry.MealEntryViewModel
 import com.suivialimentation.android.ui.mealentry.MealTypeSelectionScreen
+import com.suivialimentation.android.ui.photo.MealPhotoOverlay
 import com.suivialimentation.android.ui.photo.PhotoMealViewModel
 import com.suivialimentation.android.ui.profile.ProfileScreen
 import com.suivialimentation.android.ui.profile.ProfileViewModel
@@ -169,8 +171,45 @@ private fun SignedInRoot(sessionGeneration: Long, container: AppContainer, onLog
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val scanner = remember(context) { GmsBarcodeScanning.getClient(context, GmsBarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_EAN_13, Barcode.FORMAT_EAN_8, Barcode.FORMAT_UPC_A, Barcode.FORMAT_UPC_E).enableAutoZoom().build()) }
+    val photoVm: PhotoMealViewModel = viewModel(key = "meal-photo-${r.token}", factory = PhotoMealViewModel.Factory(container.photoAnalysisService))
+    val photoState by photoVm.state.collectAsStateWithLifecycle()
+    var applyingPhoto by remember(r.token) { mutableStateOf(false) }
+
     Box(Modifier.fillMaxSize()) {
         MealEntryScreen(mealState, vm::selectMealType, vm::updateQuery, vm::search, vm::selectFood, vm::selectPersonalFood, vm::updateBarcode, { scanner.startScan().addOnSuccessListener { it.rawValue?.let(vm::barcodeScanned) }.addOnFailureListener { vm.barcodeScanFailed(it.localizedMessage) } }, vm::lookupBarcode, vm::selectOffProduct, vm::selectQuickFood, vm::toggleFavorite, vm::selectPortion, vm::dismissFood, vm::updateQuantity, vm::addSelectedFood, vm::complementExistingMeal, vm::createSeparateMeal, vm::cancelExistingMealChoice, vm::editItem, vm::updateEditQuantity, vm::confirmItemEdit, vm::dismissItemEdit, vm::removeItem, vm::validateMeal, { route = null; todayViewModel.retry() }, { route = null; todayViewModel.retry() })
+
+        MealPhotoOverlay(
+            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 20.dp),
+            state = photoState,
+            busy = mealState.mutating || applyingPhoto,
+            onAnalyzeFood = photoVm::analyzeFood,
+            onAnalyzeMeal = photoVm::analyzeMeal,
+            onApplySuggestions = { suggestions ->
+                val mealType = mealState.mealType ?: return@MealPhotoOverlay
+                scope.launch {
+                    applyingPhoto = true
+                    val currentDraft = mealState.draftMeal?.let { MealWithItems(it, mealState.items) }
+                    runCatching {
+                        appendPhotoSuggestionsToMeal(
+                            repository = container.repository,
+                            profileId = r.profileId,
+                            mealType = mealType,
+                            localDate = r.localDate,
+                            currentDraft = currentDraft,
+                            suggestions = suggestions,
+                        )
+                    }.onSuccess { updatedDraft ->
+                        photoVm.clear()
+                        route = r.copy(token = UUID.randomUUID().toString(), draft = updatedDraft, initialMealType = null)
+                    }.onFailure {
+                        Toast.makeText(context, it.message ?: "Ajout depuis la photo impossible.", Toast.LENGTH_LONG).show()
+                    }
+                    applyingPhoto = false
+                }
+            },
+            onClear = photoVm::clear,
+        )
+
         val meal = mealState.draftMeal
         if (meal != null && mealState.items.isNotEmpty()) {
             SaveMealAsReusableButton(
