@@ -47,6 +47,7 @@ interface NutritionRepository {
     suspend fun searchPersonalFoods(profileId: String, query: String, limit: Int = 20): List<PersonalFoodCandidate>
     suspend fun importCiqualFood(profileId: String, ciqualCode: String): ImportFoodResponse
     suspend fun importPersonalFood(profileId: String, legacyFoodId: String): ImportFoodResponse
+    suspend fun createManualFood(profileId: String, label: String, nutrientsPer100g: NutrientSnapshot): ImportFoodResponse
     suspend fun getOffProduct(profileId: String, barcode: String): OffProductCandidate
     suspend fun importOffFood(profileId: String, barcode: String): ImportFoodResponse
     suspend fun loadQuickFoods(profileId: String): QuickFoods
