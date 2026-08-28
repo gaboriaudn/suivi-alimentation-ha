@@ -34,14 +34,14 @@ fun SaveMealAsReusableButton(
         enabled = enabled,
         modifier = modifier,
     ) {
-        Text("Réutiliser")
+        Text("Enregistrer comme…")
     }
 
     if (!open) return
 
     AlertDialog(
         onDismissRequest = { open = false },
-        title = { Text("Réutiliser ce repas") },
+        title = { Text("Enregistrer ce repas comme…") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
                 Text(
