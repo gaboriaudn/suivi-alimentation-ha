@@ -49,6 +49,8 @@ import com.suivialimentation.android.ui.AppUiState
 import com.suivialimentation.android.ui.AppViewModel
 import com.suivialimentation.android.ui.LoginScreen
 import com.suivialimentation.android.ui.add.AddScreen
+import com.suivialimentation.android.ui.add.LibraryCreateScreen
+import com.suivialimentation.android.ui.add.LibraryCreationKind
 import com.suivialimentation.android.ui.features.FeatureHubScreen
 import com.suivialimentation.android.ui.features.FeatureHubSection
 import com.suivialimentation.android.ui.features.FeatureHubViewModel
@@ -69,26 +71,13 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
     private val container: AppContainer get() = (application as SuiviAlimentationApplication).container
     private val appViewModel: AppViewModel by viewModels { AppViewModel.Factory(container.authManager, container.repository) }
-    private val authTabLauncher = AuthTabIntent.registerActivityResultLauncher(this) { result ->
-        when (result.resultCode) { AuthTabIntent.RESULT_OK -> result.resultUri?.let(::handleCallback) ?: appViewModel.cancelLogin(); else -> appViewModel.cancelLogin() }
-    }
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        lifecycleScope.launch { appViewModel.events.collect { event -> if (event is AppEvent.OpenAuthorization) { val scheme = Uri.parse(container.oauthConfig.redirectUri).scheme ?: error("Le schéma de retour OAuth est invalide."); AuthTabIntent.Builder().build().launch(authTabLauncher, event.url, scheme) } } }
-        setContent { SuiviAlimentationTheme { AppRoot(appViewModel, container) } }; handleCallback(intent?.data)
-    }
+    private val authTabLauncher = AuthTabIntent.registerActivityResultLauncher(this) { result -> when (result.resultCode) { AuthTabIntent.RESULT_OK -> result.resultUri?.let(::handleCallback) ?: appViewModel.cancelLogin(); else -> appViewModel.cancelLogin() } }
+    override fun onCreate(savedInstanceState: Bundle?) { super.onCreate(savedInstanceState); lifecycleScope.launch { appViewModel.events.collect { event -> if (event is AppEvent.OpenAuthorization) { val scheme = Uri.parse(container.oauthConfig.redirectUri).scheme ?: error("Le schéma de retour OAuth est invalide."); AuthTabIntent.Builder().build().launch(authTabLauncher, event.url, scheme) } } }; setContent { SuiviAlimentationTheme { AppRoot(appViewModel, container) } }; handleCallback(intent?.data) }
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); handleCallback(intent.data) }
     private fun handleCallback(uri: Uri?) { if (uri == null) return; appViewModel.handleAuthCallback(uri); intent?.data = null }
 }
 
-private data class MealEntryRoute(
-    val token: String,
-    val profileId: String,
-    val localDate: String,
-    val draft: MealWithItems? = null,
-    val existingMeals: List<MealWithItems> = emptyList(),
-    val initialMealType: String? = null,
-)
+private data class MealEntryRoute(val token: String, val profileId: String, val localDate: String, val draft: MealWithItems? = null, val existingMeals: List<MealWithItems> = emptyList(), val initialMealType: String? = null)
 private enum class MainDestination(val label: String) { TODAY("Aujourd’hui"), ADD("Ajouter"), HISTORY("Historique"), PROFILE("Profil") }
 
 @Composable
@@ -107,150 +96,69 @@ private fun SignedInRoot(sessionGeneration: Long, container: AppContainer, onLog
     val todayViewModel: TodayViewModel = viewModel(key = "today-$sessionGeneration", factory = TodayViewModel.Factory(container.repository))
     val todayState by todayViewModel.state.collectAsStateWithLifecycle()
     var route by remember(sessionGeneration) { mutableStateOf<MealEntryRoute?>(null) }
+    var creationKind by remember(sessionGeneration) { mutableStateOf<LibraryCreationKind?>(null) }
     var destination by remember(sessionGeneration) { mutableStateOf(MainDestination.TODAY) }
-    LaunchedEffect(todayState.duplicatedDraft?.meal?.id) {
-        val draft = todayState.duplicatedDraft ?: return@LaunchedEffect; val content = todayState.content ?: return@LaunchedEffect
-        route = MealEntryRoute("${draft.meal.id}-${UUID.randomUUID()}", content.profile.id, content.localDate, draft); todayViewModel.consumeDuplicatedDraft()
-    }
+    LaunchedEffect(todayState.duplicatedDraft?.meal?.id) { val draft = todayState.duplicatedDraft ?: return@LaunchedEffect; val content = todayState.content ?: return@LaunchedEffect; route = MealEntryRoute("${draft.meal.id}-${UUID.randomUUID()}", content.profile.id, content.localDate, draft); todayViewModel.consumeDuplicatedDraft() }
     val content = todayState.content
 
+    if (route == null && creationKind != null && content != null) {
+        LibraryCreateScreen(
+            kind = creationKind!!,
+            profileId = content.profile.id,
+            nutritionRepository = container.repository,
+            featureRepository = container.featureRepository,
+            onBack = { creationKind = null },
+            onDone = { creationKind = null; destination = MainDestination.ADD; todayViewModel.retry() },
+        )
+        return
+    }
+
     if (route == null && content != null && destination == MainDestination.PROFILE) {
-        val vm: ProfileViewModel = viewModel(key = "profile-${content.profile.id}", factory = ProfileViewModel.Factory(container.repository, content.profile.id))
-        val profileState by vm.state.collectAsStateWithLifecycle()
-        Scaffold(bottomBar = { MainNavigationBar(destination, { destination = MainDestination.ADD }) { destination = it } }) { p ->
-            ProfileScreen(Modifier.padding(p), profileState, vm::save, vm::reload, onLogout)
-        }
+        val vm: ProfileViewModel = viewModel(key = "profile-${content.profile.id}", factory = ProfileViewModel.Factory(container.repository, content.profile.id)); val profileState by vm.state.collectAsStateWithLifecycle()
+        Scaffold(bottomBar = { MainNavigationBar(destination, { destination = MainDestination.ADD }) { destination = it } }) { p -> ProfileScreen(Modifier.padding(p), profileState, vm::save, vm::reload, onLogout) }
         return
     }
 
     if (route == null && content != null && destination == MainDestination.ADD) {
         Scaffold(bottomBar = { MainNavigationBar(destination, { destination = MainDestination.ADD }) { destination = it } }) { p ->
-            AddScreen(Modifier.padding(p)) { mealType ->
-                route = MealEntryRoute(
-                    token = UUID.randomUUID().toString(),
-                    profileId = content.profile.id,
-                    localDate = content.localDate,
-                    existingMeals = content.meals,
-                    initialMealType = mealType,
-                )
-            }
+            AddScreen(
+                modifier = Modifier.padding(p),
+                onAddMeal = { mealType -> route = MealEntryRoute(UUID.randomUUID().toString(), content.profile.id, content.localDate, existingMeals = content.meals, initialMealType = mealType) },
+                onCreateFood = { creationKind = LibraryCreationKind.FOOD },
+                onCreateRecipe = { creationKind = LibraryCreationKind.RECIPE },
+                onCreateMealTemplate = { creationKind = LibraryCreationKind.MEAL_TEMPLATE },
+            )
         }
         return
     }
 
     if (route == null && content != null && destination == MainDestination.HISTORY) {
-        val featureVm: FeatureHubViewModel = viewModel(key = "features-${content.profile.id}-${content.localDate}", factory = FeatureHubViewModel.Factory(container.featureRepository, container.repository, content.profile.id, content.localDate))
-        val featureState by featureVm.state.collectAsStateWithLifecycle()
-        val photoVm: PhotoMealViewModel = viewModel(key = "photo-${content.profile.id}-${content.localDate}", factory = PhotoMealViewModel.Factory(container.photoAnalysisService))
-        val photoState by photoVm.state.collectAsStateWithLifecycle()
-        Scaffold(bottomBar = { MainNavigationBar(destination, { destination = MainDestination.ADD }) { destination = it } }) { p ->
-            FeatureHubScreen(Modifier.padding(p), FeatureHubSection.HISTORY, featureState, photoState, content.meals, photoVm::analyzeFood, photoVm::analyzeMeal, photoVm::clear, featureVm::createFromPhoto, featureVm::saveRecipe, featureVm::createFromRecipe, {}, { destination = MainDestination.TODAY; photoVm.clear(); todayViewModel.retry() })
-        }
+        val featureVm: FeatureHubViewModel = viewModel(key = "features-${content.profile.id}-${content.localDate}", factory = FeatureHubViewModel.Factory(container.featureRepository, container.repository, content.profile.id, content.localDate)); val featureState by featureVm.state.collectAsStateWithLifecycle(); val photoVm: PhotoMealViewModel = viewModel(key = "photo-${content.profile.id}-${content.localDate}", factory = PhotoMealViewModel.Factory(container.photoAnalysisService)); val photoState by photoVm.state.collectAsStateWithLifecycle()
+        Scaffold(bottomBar = { MainNavigationBar(destination, { destination = MainDestination.ADD }) { destination = it } }) { p -> FeatureHubScreen(Modifier.padding(p), FeatureHubSection.HISTORY, featureState, photoState, content.meals, photoVm::analyzeFood, photoVm::analyzeMeal, photoVm::clear, featureVm::createFromPhoto, featureVm::saveRecipe, featureVm::createFromRecipe, {}, { destination = MainDestination.TODAY; photoVm.clear(); todayViewModel.retry() }) }
         return
     }
 
     if (route == null) {
-        Scaffold(bottomBar = { MainNavigationBar(destination, { destination = MainDestination.ADD }) { destination = it } }) { p ->
-            TodayScreen(Modifier.padding(p), todayState, todayViewModel::retry, { draft -> val c = todayState.content ?: return@TodayScreen; route = MealEntryRoute("${draft.meal.id}-${UUID.randomUUID()}", c.profile.id, c.localDate, draft) }, todayViewModel::duplicateMeal, todayViewModel::correctMeal, todayViewModel::deleteMeal, todayViewModel::previousDay, todayViewModel::nextDay, todayViewModel::today)
-        }
+        Scaffold(bottomBar = { MainNavigationBar(destination, { destination = MainDestination.ADD }) { destination = it } }) { p -> TodayScreen(Modifier.padding(p), todayState, todayViewModel::retry, { draft -> val c = todayState.content ?: return@TodayScreen; route = MealEntryRoute("${draft.meal.id}-${UUID.randomUUID()}", c.profile.id, c.localDate, draft) }, todayViewModel::duplicateMeal, todayViewModel::correctMeal, todayViewModel::deleteMeal, todayViewModel::previousDay, todayViewModel::nextDay, todayViewModel::today) }
         return
     }
 
     val r = route ?: return
-    val vm: MealEntryViewModel = viewModel(key = "meal-entry-${r.token}", factory = MealEntryViewModel.Factory(container.repository, r.profileId, r.localDate, r.draft, r.existingMeals))
-    val mealState by vm.state.collectAsStateWithLifecycle()
-    LaunchedEffect(r.initialMealType) {
-        if (r.draft == null && mealState.mealType == null) r.initialMealType?.let(vm::selectMealType)
-    }
-    if (r.draft == null && mealState.mealType == null) {
-        if (r.initialMealType != null) FullScreenLoading("Préparation du repas…")
-        else MealTypeSelectionScreen(vm::selectMealType) { route = null; todayViewModel.retry() }
-        return
-    }
+    val vm: MealEntryViewModel = viewModel(key = "meal-entry-${r.token}", factory = MealEntryViewModel.Factory(container.repository, r.profileId, r.localDate, r.draft, r.existingMeals)); val mealState by vm.state.collectAsStateWithLifecycle()
+    LaunchedEffect(r.initialMealType) { if (r.draft == null && mealState.mealType == null) r.initialMealType?.let(vm::selectMealType) }
+    if (r.draft == null && mealState.mealType == null) { if (r.initialMealType != null) FullScreenLoading("Préparation du repas…") else MealTypeSelectionScreen(vm::selectMealType) { route = null; todayViewModel.retry() }; return }
 
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val scanner = remember(context) { GmsBarcodeScanning.getClient(context, GmsBarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_EAN_13, Barcode.FORMAT_EAN_8, Barcode.FORMAT_UPC_A, Barcode.FORMAT_UPC_E).enableAutoZoom().build()) }
-    val photoVm: PhotoMealViewModel = viewModel(key = "meal-photo-${r.token}", factory = PhotoMealViewModel.Factory(container.photoAnalysisService))
-    val photoState by photoVm.state.collectAsStateWithLifecycle()
-    var applyingPhoto by remember(r.token) { mutableStateOf(false) }
+    val context = LocalContext.current; val scope = rememberCoroutineScope(); val scanner = remember(context) { GmsBarcodeScanning.getClient(context, GmsBarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_EAN_13, Barcode.FORMAT_EAN_8, Barcode.FORMAT_UPC_A, Barcode.FORMAT_UPC_E).enableAutoZoom().build()) }; val photoVm: PhotoMealViewModel = viewModel(key = "meal-photo-${r.token}", factory = PhotoMealViewModel.Factory(container.photoAnalysisService)); val photoState by photoVm.state.collectAsStateWithLifecycle(); var applyingPhoto by remember(r.token) { mutableStateOf(false) }
 
     Box(Modifier.fillMaxSize()) {
         MealEntryScreen(mealState, vm::selectMealType, vm::updateQuery, vm::search, vm::selectFood, vm::selectPersonalFood, vm::updateBarcode, { scanner.startScan().addOnSuccessListener { it.rawValue?.let(vm::barcodeScanned) }.addOnFailureListener { vm.barcodeScanFailed(it.localizedMessage) } }, vm::lookupBarcode, vm::selectOffProduct, vm::selectQuickFood, vm::toggleFavorite, vm::selectPortion, vm::dismissFood, vm::updateQuantity, vm::addSelectedFood, vm::complementExistingMeal, vm::createSeparateMeal, vm::cancelExistingMealChoice, vm::editItem, vm::updateEditQuantity, vm::confirmItemEdit, vm::dismissItemEdit, vm::removeItem, vm::validateMeal, { route = null; todayViewModel.retry() }, { route = null; todayViewModel.retry() })
-
-        MealPhotoOverlay(
-            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 20.dp),
-            state = photoState,
-            busy = mealState.mutating || applyingPhoto,
-            onAnalyzeFood = photoVm::analyzeFood,
-            onAnalyzeMeal = photoVm::analyzeMeal,
-            onApplySuggestions = { suggestions ->
-                val mealType = mealState.mealType ?: return@MealPhotoOverlay
-                scope.launch {
-                    applyingPhoto = true
-                    val currentDraft = mealState.draftMeal?.let { MealWithItems(it, mealState.items) }
-                    runCatching {
-                        appendPhotoSuggestionsToMeal(
-                            repository = container.repository,
-                            profileId = r.profileId,
-                            mealType = mealType,
-                            localDate = r.localDate,
-                            currentDraft = currentDraft,
-                            suggestions = suggestions,
-                        )
-                    }.onSuccess { updatedDraft ->
-                        photoVm.clear()
-                        route = r.copy(token = UUID.randomUUID().toString(), draft = updatedDraft, initialMealType = null)
-                    }.onFailure {
-                        Toast.makeText(context, it.message ?: "Ajout depuis la photo impossible.", Toast.LENGTH_LONG).show()
-                    }
-                    applyingPhoto = false
-                }
-            },
-            onClear = photoVm::clear,
-        )
-
+        MealPhotoOverlay(modifier = Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 20.dp), state = photoState, busy = mealState.mutating || applyingPhoto, onAnalyzeFood = photoVm::analyzeFood, onAnalyzeMeal = photoVm::analyzeMeal, onApplySuggestions = { suggestions -> val mealType = mealState.mealType ?: return@MealPhotoOverlay; scope.launch { applyingPhoto = true; val currentDraft = mealState.draftMeal?.let { MealWithItems(it, mealState.items) }; runCatching { appendPhotoSuggestionsToMeal(container.repository, r.profileId, mealType, r.localDate, currentDraft, suggestions) }.onSuccess { updatedDraft -> photoVm.clear(); route = r.copy(token = UUID.randomUUID().toString(), draft = updatedDraft, initialMealType = null) }.onFailure { Toast.makeText(context, it.message ?: "Ajout depuis la photo impossible.", Toast.LENGTH_LONG).show() }; applyingPhoto = false } }, onClear = photoVm::clear)
         val meal = mealState.draftMeal
-        if (meal != null && mealState.items.isNotEmpty()) {
-            SaveMealAsReusableButton(
-                modifier = Modifier.align(Alignment.TopEnd).padding(top = 64.dp, end = 12.dp),
-                defaultName = meal.label.orEmpty().ifBlank { mealTypeLabel(meal.mealType) },
-                enabled = !mealState.mutating,
-                onSaveAsTemplate = { name ->
-                    scope.launch {
-                        runCatching { container.featureRepository.saveMealAsTemplate(meal.id, name) }
-                            .onSuccess { Toast.makeText(context, "Repas type enregistré.", Toast.LENGTH_SHORT).show() }
-                            .onFailure { Toast.makeText(context, it.message ?: "Enregistrement impossible.", Toast.LENGTH_LONG).show() }
-                    }
-                },
-                onSaveAsRecipe = { name ->
-                    scope.launch {
-                        runCatching { container.featureRepository.saveMealAsRecipe(meal.id, name) }
-                            .onSuccess { Toast.makeText(context, "Recette enregistrée.", Toast.LENGTH_SHORT).show() }
-                            .onFailure { Toast.makeText(context, it.message ?: "Enregistrement impossible.", Toast.LENGTH_LONG).show() }
-                    }
-                },
-            )
-        }
+        if (meal != null && mealState.items.isNotEmpty()) SaveMealAsReusableButton(modifier = Modifier.align(Alignment.TopEnd).padding(top = 64.dp, end = 12.dp), defaultName = meal.label.orEmpty().ifBlank { mealTypeLabel(meal.mealType) }, enabled = !mealState.mutating, onSaveAsTemplate = { name -> scope.launch { runCatching { container.featureRepository.saveMealAsTemplate(meal.id, name) }.onSuccess { Toast.makeText(context, "Repas type enregistré.", Toast.LENGTH_SHORT).show() }.onFailure { Toast.makeText(context, it.message ?: "Enregistrement impossible.", Toast.LENGTH_LONG).show() } } }, onSaveAsRecipe = { name -> scope.launch { runCatching { container.featureRepository.saveMealAsRecipe(meal.id, name) }.onSuccess { Toast.makeText(context, "Recette enregistrée.", Toast.LENGTH_SHORT).show() }.onFailure { Toast.makeText(context, it.message ?: "Enregistrement impossible.", Toast.LENGTH_LONG).show() } } })
     }
 }
 
-private fun mealTypeLabel(value: String): String = when (value) {
-    "breakfast" -> "Petit-déjeuner"
-    "lunch" -> "Déjeuner"
-    "dinner" -> "Dîner"
-    "snack" -> "Collation"
-    else -> "Repas"
-}
-
-@Composable
-private fun MainNavigationBar(current: MainDestination, onAdd: () -> Unit, onNavigate: (MainDestination) -> Unit) {
-    NavigationBar { MainNavigationItem(MainDestination.TODAY, current == MainDestination.TODAY, Modifier.weight(1f)) { onNavigate(MainDestination.TODAY) }; MainNavigationItem(MainDestination.ADD, current == MainDestination.ADD, Modifier.weight(1f), onAdd); MainNavigationItem(MainDestination.HISTORY, current == MainDestination.HISTORY, Modifier.weight(1f)) { onNavigate(MainDestination.HISTORY) }; MainNavigationItem(MainDestination.PROFILE, current == MainDestination.PROFILE, Modifier.weight(1f)) { onNavigate(MainDestination.PROFILE) } }
-}
-@Composable
-private fun MainNavigationItem(destination: MainDestination, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    val icon = when (destination) { MainDestination.TODAY -> Icons.Filled.Home; MainDestination.ADD -> Icons.Filled.AddCircle; MainDestination.HISTORY -> Icons.Filled.CalendarMonth; MainDestination.PROFILE -> Icons.Filled.Person }
-    val color = if (selected) androidx.compose.material3.MaterialTheme.colorScheme.primary else androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant
-    Column(modifier.clickable(onClick = onClick).padding(vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) { Icon(icon, destination.label, tint = color); Text(destination.label, color = color, style = androidx.compose.material3.MaterialTheme.typography.labelMedium) }
-}
+private fun mealTypeLabel(value: String): String = when (value) { "breakfast" -> "Petit-déjeuner"; "lunch" -> "Déjeuner"; "dinner" -> "Dîner"; "snack" -> "Collation"; else -> "Repas" }
+@Composable private fun MainNavigationBar(current: MainDestination, onAdd: () -> Unit, onNavigate: (MainDestination) -> Unit) { NavigationBar { MainNavigationItem(MainDestination.TODAY, current == MainDestination.TODAY, Modifier.weight(1f)) { onNavigate(MainDestination.TODAY) }; MainNavigationItem(MainDestination.ADD, current == MainDestination.ADD, Modifier.weight(1f), onAdd); MainNavigationItem(MainDestination.HISTORY, current == MainDestination.HISTORY, Modifier.weight(1f)) { onNavigate(MainDestination.HISTORY) }; MainNavigationItem(MainDestination.PROFILE, current == MainDestination.PROFILE, Modifier.weight(1f)) { onNavigate(MainDestination.PROFILE) } } }
+@Composable private fun MainNavigationItem(destination: MainDestination, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) { val icon = when (destination) { MainDestination.TODAY -> Icons.Filled.Home; MainDestination.ADD -> Icons.Filled.AddCircle; MainDestination.HISTORY -> Icons.Filled.CalendarMonth; MainDestination.PROFILE -> Icons.Filled.Person }; val color = if (selected) androidx.compose.material3.MaterialTheme.colorScheme.primary else androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant; Column(modifier.clickable(onClick = onClick).padding(vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) { Icon(icon, destination.label, tint = color); Text(destination.label, color = color, style = androidx.compose.material3.MaterialTheme.typography.labelMedium) } }
 @Composable private fun FullScreenLoading(label: String) { Column(Modifier.fillMaxSize(), Arrangement.Center, Alignment.CenterHorizontally) { CircularProgressIndicator(); Text(label) } }

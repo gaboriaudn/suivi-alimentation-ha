@@ -9,6 +9,7 @@ import com.suivialimentation.android.util.AppJson
 import java.util.UUID
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.jsonArray
@@ -16,29 +17,11 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
-data class RecipeSummary(
-    val id: String,
-    val name: String,
-    val ingredients: List<String>,
-)
-
-data class MealTemplateSummary(
-    val id: String,
-    val name: String,
-    val defaultMealType: String?,
-    val items: List<String>,
-)
-
-data class HistoryDaySummary(
-    val localDate: String,
-    val totals: NutrientSnapshot,
-)
-
-data class HistoryAnalysis(
-    val recordedDayCount: Int,
-    val averages: NutrientSnapshot,
-    val days: List<HistoryDaySummary>,
-)
+data class RecipeSummary(val id: String, val name: String, val ingredients: List<String>)
+data class MealTemplateSummary(val id: String, val name: String, val defaultMealType: String?, val items: List<String>)
+data class HistoryDaySummary(val localDate: String, val totals: NutrientSnapshot)
+data class HistoryAnalysis(val recordedDayCount: Int, val averages: NutrientSnapshot, val days: List<HistoryDaySummary>)
+data class ReusableItemInput(val foodRefId: String, val label: String, val grams: Double)
 
 class FeatureRepository(private val api: HomeAssistantApi) {
     suspend fun getRecipes(profileId: String): List<RecipeSummary> {
@@ -49,12 +32,13 @@ class FeatureRepository(private val api: HomeAssistantApi) {
         return root["recipes"]?.jsonArray.orEmpty().mapNotNull { element ->
             val obj = element.jsonObject
             val recipe = obj["recipe"]?.jsonObject ?: return@mapNotNull null
-            val id = recipe["id"]?.jsonPrimitive?.content ?: return@mapNotNull null
-            val name = recipe["name"]?.jsonPrimitive?.content ?: "Recette"
-            val ingredients = obj["ingredients"]?.jsonArray.orEmpty().mapNotNull {
-                it.jsonObject["labelSnapshot"]?.jsonPrimitive?.content
-            }
-            RecipeSummary(id, name, ingredients)
+            RecipeSummary(
+                id = recipe["id"]?.jsonPrimitive?.content ?: return@mapNotNull null,
+                name = recipe["name"]?.jsonPrimitive?.content ?: "Recette",
+                ingredients = obj["ingredients"]?.jsonArray.orEmpty().mapNotNull {
+                    it.jsonObject["labelSnapshot"]?.jsonPrimitive?.content
+                },
+            )
         }
     }
 
@@ -66,14 +50,72 @@ class FeatureRepository(private val api: HomeAssistantApi) {
         return root["templates"]?.jsonArray.orEmpty().mapNotNull { element ->
             val obj = element.jsonObject
             val template = obj["template"]?.jsonObject ?: return@mapNotNull null
-            val id = template["id"]?.jsonPrimitive?.content ?: return@mapNotNull null
-            val name = template["name"]?.jsonPrimitive?.content ?: "Repas type"
-            val mealType = template["defaultMealType"]?.jsonPrimitive?.content
-            val items = obj["items"]?.jsonArray.orEmpty().mapNotNull {
-                it.jsonObject["labelSnapshot"]?.jsonPrimitive?.content
-            }
-            MealTemplateSummary(id, name, mealType, items)
+            MealTemplateSummary(
+                id = template["id"]?.jsonPrimitive?.content ?: return@mapNotNull null,
+                name = template["name"]?.jsonPrimitive?.content ?: "Repas type",
+                defaultMealType = template["defaultMealType"]?.jsonPrimitive?.content,
+                items = obj["items"]?.jsonArray.orEmpty().mapNotNull {
+                    it.jsonObject["labelSnapshot"]?.jsonPrimitive?.content
+                },
+            )
         }
+    }
+
+    suspend fun createRecipe(profileId: String, name: String, items: List<ReusableItemInput>): RecipeSummary {
+        val root = api.rawCommand(
+            "suivi_alimentation/v2/create_recipe",
+            buildJsonObject {
+                put("profile_id", profileId)
+                put("name", name.trim())
+                put("operation_id", UUID.randomUUID().toString())
+                put("items", buildJsonArray {
+                    items.forEach { item ->
+                        add(buildJsonObject {
+                            put("food_ref_id", item.foodRefId)
+                            put("quantity_value", item.grams)
+                            put("quantity_unit", "g")
+                        })
+                    }
+                })
+            },
+        ).jsonObject
+        val recipe = root["recipe"]?.jsonObject ?: error("Recette non retournée par Home Assistant.")
+        return RecipeSummary(
+            id = recipe["id"]?.jsonPrimitive?.content ?: error("Identifiant de recette absent."),
+            name = recipe["name"]?.jsonPrimitive?.content ?: name,
+            ingredients = root["ingredients"]?.jsonArray.orEmpty().mapNotNull {
+                it.jsonObject["labelSnapshot"]?.jsonPrimitive?.content
+            },
+        )
+    }
+
+    suspend fun createMealTemplate(profileId: String, name: String, items: List<ReusableItemInput>): MealTemplateSummary {
+        val root = api.rawCommand(
+            "suivi_alimentation/v2/create_meal_template",
+            buildJsonObject {
+                put("profile_id", profileId)
+                put("name", name.trim())
+                put("operation_id", UUID.randomUUID().toString())
+                put("items", buildJsonArray {
+                    items.forEach { item ->
+                        add(buildJsonObject {
+                            put("food_ref_id", item.foodRefId)
+                            put("quantity_value", item.grams)
+                            put("quantity_unit", "g")
+                        })
+                    }
+                })
+            },
+        ).jsonObject
+        val template = root["template"]?.jsonObject ?: error("Repas type non retourné par Home Assistant.")
+        return MealTemplateSummary(
+            id = template["id"]?.jsonPrimitive?.content ?: error("Identifiant du repas type absent."),
+            name = template["name"]?.jsonPrimitive?.content ?: name,
+            defaultMealType = template["defaultMealType"]?.jsonPrimitive?.content,
+            items = root["items"]?.jsonArray.orEmpty().mapNotNull {
+                it.jsonObject["labelSnapshot"]?.jsonPrimitive?.content
+            },
+        )
     }
 
     suspend fun saveMealAsRecipe(sourceMealId: String, name: String): RecipeSummary {
@@ -86,13 +128,12 @@ class FeatureRepository(private val api: HomeAssistantApi) {
             },
         ).jsonObject
         val recipe = root["recipe"]?.jsonObject ?: error("Recette non retournée par Home Assistant.")
-        val ingredients = root["ingredients"]?.jsonArray.orEmpty().mapNotNull {
-            it.jsonObject["labelSnapshot"]?.jsonPrimitive?.content
-        }
         return RecipeSummary(
             id = recipe["id"]?.jsonPrimitive?.content ?: error("Identifiant de recette absent."),
             name = recipe["name"]?.jsonPrimitive?.content ?: name,
-            ingredients = ingredients,
+            ingredients = root["ingredients"]?.jsonArray.orEmpty().mapNotNull {
+                it.jsonObject["labelSnapshot"]?.jsonPrimitive?.content
+            },
         )
     }
 
@@ -106,19 +147,18 @@ class FeatureRepository(private val api: HomeAssistantApi) {
             },
         ).jsonObject
         val template = root["template"]?.jsonObject ?: error("Repas type non retourné par Home Assistant.")
-        val items = root["items"]?.jsonArray.orEmpty().mapNotNull {
-            it.jsonObject["labelSnapshot"]?.jsonPrimitive?.content
-        }
         return MealTemplateSummary(
             id = template["id"]?.jsonPrimitive?.content ?: error("Identifiant du repas type absent."),
             name = template["name"]?.jsonPrimitive?.content ?: name,
             defaultMealType = template["defaultMealType"]?.jsonPrimitive?.content,
-            items = items,
+            items = root["items"]?.jsonArray.orEmpty().mapNotNull {
+                it.jsonObject["labelSnapshot"]?.jsonPrimitive?.content
+            },
         )
     }
 
     suspend fun createMealFromRecipe(recipeId: String, mealType: String, localDate: String): MealWithItems {
-        val root = api.rawCommand(
+        return api.rawCommand(
             "suivi_alimentation/v2/create_meal_from_recipe",
             buildJsonObject {
                 put("recipe_id", recipeId)
@@ -126,12 +166,11 @@ class FeatureRepository(private val api: HomeAssistantApi) {
                 put("local_date", localDate)
                 put("operation_id", UUID.randomUUID().toString())
             },
-        ).jsonObject
-        return root.toMealWithItems()
+        ).jsonObject.toMealWithItems()
     }
 
     suspend fun createMealFromTemplate(templateId: String, mealType: String, localDate: String): MealWithItems {
-        val root = api.rawCommand(
+        return api.rawCommand(
             "suivi_alimentation/v2/create_meal_from_template",
             buildJsonObject {
                 put("template_id", templateId)
@@ -139,8 +178,7 @@ class FeatureRepository(private val api: HomeAssistantApi) {
                 put("local_date", localDate)
                 put("operation_id", UUID.randomUUID().toString())
             },
-        ).jsonObject
-        return root.toMealWithItems()
+        ).jsonObject.toMealWithItems()
     }
 
     suspend fun getHistoryRange(profileId: String, startDate: String, endDate: String): HistoryAnalysis {
@@ -152,11 +190,12 @@ class FeatureRepository(private val api: HomeAssistantApi) {
                 put("end_date", endDate)
             },
         ).jsonObject
-        val averages = root["averages"]?.jsonObject.toNutrients()
+        val averagesObject = root["averages"] as? JsonObject
+        val averages = averagesObject.toNutrients()
         val days = root["days"]?.jsonArray.orEmpty().mapNotNull { element ->
             val obj = element.jsonObject
             val date = obj["localDate"]?.jsonPrimitive?.content ?: return@mapNotNull null
-            HistoryDaySummary(date, obj["totals"]?.jsonObject.toNutrients())
+            HistoryDaySummary(date, (obj["totals"] as? JsonObject).toNutrients())
         }
         return HistoryAnalysis(
             recordedDayCount = root["recordedDayCount"]?.jsonPrimitive?.content?.toIntOrNull() ?: days.size,
@@ -166,7 +205,10 @@ class FeatureRepository(private val api: HomeAssistantApi) {
     }
 
     private fun JsonObject.toMealWithItems(): MealWithItems {
-        val meal = AppJson.decodeFromJsonElement(Meal.serializer(), this["meal"] ?: error("Repas absent."))
+        val meal = AppJson.decodeFromJsonElement(
+            Meal.serializer(),
+            this["meal"] ?: error("Repas absent."),
+        )
         val items = this["items"]?.jsonArray.orEmpty().map {
             AppJson.decodeFromJsonElement(MealItem.serializer(), it)
         }
@@ -174,7 +216,7 @@ class FeatureRepository(private val api: HomeAssistantApi) {
     }
 
     private fun JsonObject?.toNutrients(): NutrientSnapshot {
-        fun number(key: String) = this?.get(key)?.jsonPrimitive?.doubleOrNull
+        fun number(key: String): Double? = this?.get(key)?.jsonPrimitive?.doubleOrNull
         return NutrientSnapshot(
             energyKcal = number("energyKcal"),
             proteinG = number("proteinG"),
