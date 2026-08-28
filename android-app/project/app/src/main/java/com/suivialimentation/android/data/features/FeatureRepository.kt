@@ -21,7 +21,13 @@ data class RecipeSummary(val id: String, val name: String, val ingredients: List
 data class MealTemplateSummary(val id: String, val name: String, val defaultMealType: String?, val items: List<String>)
 data class HistoryDaySummary(val localDate: String, val totals: NutrientSnapshot)
 data class HistoryAnalysis(val recordedDayCount: Int, val averages: NutrientSnapshot, val days: List<HistoryDaySummary>)
-data class ReusableItemInput(val foodRefId: String, val label: String, val grams: Double)
+data class ReusableItemInput(
+    val foodRefId: String,
+    val label: String,
+    val quantityValue: Double,
+    val quantityUnit: String = "g",
+    val portionId: String? = null,
+)
 
 class FeatureRepository(private val api: HomeAssistantApi) {
     suspend fun getRecipes(profileId: String): List<RecipeSummary> {
@@ -68,15 +74,7 @@ class FeatureRepository(private val api: HomeAssistantApi) {
                 put("profile_id", profileId)
                 put("name", name.trim())
                 put("operation_id", UUID.randomUUID().toString())
-                put("items", buildJsonArray {
-                    items.forEach { item ->
-                        add(buildJsonObject {
-                            put("food_ref_id", item.foodRefId)
-                            put("quantity_value", item.grams)
-                            put("quantity_unit", "g")
-                        })
-                    }
-                })
+                put("items", buildReusableItems(items))
             },
         ).jsonObject
         val recipe = root["recipe"]?.jsonObject ?: error("Recette non retournée par Home Assistant.")
@@ -96,15 +94,7 @@ class FeatureRepository(private val api: HomeAssistantApi) {
                 put("profile_id", profileId)
                 put("name", name.trim())
                 put("operation_id", UUID.randomUUID().toString())
-                put("items", buildJsonArray {
-                    items.forEach { item ->
-                        add(buildJsonObject {
-                            put("food_ref_id", item.foodRefId)
-                            put("quantity_value", item.grams)
-                            put("quantity_unit", "g")
-                        })
-                    }
-                })
+                put("items", buildReusableItems(items))
             },
         ).jsonObject
         val template = root["template"]?.jsonObject ?: error("Repas type non retourné par Home Assistant.")
@@ -116,6 +106,17 @@ class FeatureRepository(private val api: HomeAssistantApi) {
                 it.jsonObject["labelSnapshot"]?.jsonPrimitive?.content
             },
         )
+    }
+
+    private fun buildReusableItems(items: List<ReusableItemInput>) = buildJsonArray {
+        items.forEach { item ->
+            add(buildJsonObject {
+                put("food_ref_id", item.foodRefId)
+                put("quantity_value", item.quantityValue)
+                put("quantity_unit", item.quantityUnit)
+                item.portionId?.let { put("portion_id", it) }
+            })
+        }
     }
 
     suspend fun saveMealAsRecipe(sourceMealId: String, name: String): RecipeSummary {
