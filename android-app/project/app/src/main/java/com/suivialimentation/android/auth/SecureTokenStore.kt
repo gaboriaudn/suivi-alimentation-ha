@@ -26,11 +26,25 @@ class SecureTokenStore(context: Context) {
     }
 
     suspend fun save(session: AuthSession) = withContext(Dispatchers.IO) {
-        prefs.edit().putString(KEY_SESSION, encrypt(AppJson.encodeToString(session))).commit()
+        prefs.edit()
+            .putString(KEY_SESSION, encrypt(AppJson.encodeToString(session)))
+            .putString(KEY_LAST_INSTANCE_URL, session.instanceUrl)
+            .commit()
+        Unit
+    }
+
+    suspend fun loadLastInstanceUrl(): String? = withContext(Dispatchers.IO) {
+        prefs.getString(KEY_LAST_INSTANCE_URL, null)?.takeIf(String::isNotBlank)
+    }
+
+    suspend fun saveLastInstanceUrl(instanceUrl: String) = withContext(Dispatchers.IO) {
+        prefs.edit().putString(KEY_LAST_INSTANCE_URL, instanceUrl).commit()
         Unit
     }
 
     suspend fun clear() = withContext(Dispatchers.IO) {
+        // L'adresse du serveur est volontairement conservée lors d'une déconnexion
+        // ou de l'expiration des jetons OAuth. Seuls les secrets de session sont effacés.
         prefs.edit().remove(KEY_SESSION).commit()
         Unit
     }
@@ -73,6 +87,7 @@ class SecureTokenStore(context: Context) {
 
     private companion object {
         const val KEY_SESSION = "session"
+        const val KEY_LAST_INSTANCE_URL = "last_instance_url"
         const val KEY_ALIAS = "suivi_alimentation_auth_v1"
         const val TRANSFORMATION = "AES/GCM/NoPadding"
     }

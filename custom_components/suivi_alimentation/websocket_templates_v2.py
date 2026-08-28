@@ -71,8 +71,8 @@ async def websocket_save_meal_as_template(hass, connection, msg) -> None:
         return
     data = repository.snapshot()
     source = data["mealsById"].get(msg["source_meal_id"])
-    if source is None or source.get("status") != "validated" or _require_profile(connection, repository, source.get("profileId")) is None:
-        connection.send_error(msg["id"], "unauthorized", "Validated meal unavailable")
+    if source is None or source.get("status") not in {"draft", "validated"} or _require_profile(connection, repository, source.get("profileId")) is None:
+        connection.send_error(msg["id"], "unauthorized", "Meal unavailable")
         return
     name = msg["name"].strip()
     if not name:

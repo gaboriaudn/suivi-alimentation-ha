@@ -27,10 +27,11 @@ fun LoginScreen(
     authenticating: Boolean,
     error: String?,
     oauthConfigured: Boolean,
+    initialInstanceUrl: String = "",
     onLogin: (String) -> Unit,
     onCancel: () -> Unit = {},
 ) {
-    var instanceUrl by remember { mutableStateOf("") }
+    var instanceUrl by remember(initialInstanceUrl) { mutableStateOf(initialInstanceUrl) }
     Column(
         modifier = Modifier.fillMaxSize().padding(24.dp),
         verticalArrangement = Arrangement.Center,
