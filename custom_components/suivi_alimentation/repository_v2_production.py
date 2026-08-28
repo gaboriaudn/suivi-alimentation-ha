@@ -5,7 +5,7 @@ import uuid
 from copy import deepcopy
 from typing import Any
 
-from .repository import SuiviAlimentationRepository, _rebuild_day
+from .repository import RevisionConflict, SuiviAlimentationRepository, _rebuild_day
 from .store_v2 import utc_now_iso
 
 LEGACY_MEAL_TYPES = {
@@ -59,6 +59,53 @@ class ProductionSuiviAlimentationRepository(SuiviAlimentationRepository):
             time_zone=time_zone,
         )
         result["reusedDraft"] = False
+        return result
+
+    async def async_void_meal(
+        self,
+        *,
+        meal_id: str,
+        operation_id: str,
+        expected_meal_revision: int,
+    ) -> dict[str, Any]:
+        """Discard a draft or archive a validated meal.
+
+        The base repository historically accepted only validated meals, while the
+        Android UI also uses this operation for the explicit 'delete draft'
+        action. Drafts are therefore voided here without touching daily totals.
+        """
+        candidate = self.snapshot()
+        meal = candidate["mealsById"].get(meal_id)
+        if meal is None or meal.get("status") != "draft":
+            return await super().async_void_meal(
+                meal_id=meal_id,
+                operation_id=operation_id,
+                expected_meal_revision=expected_meal_revision,
+            )
+        if int(meal.get("revision", 1)) != expected_meal_revision:
+            raise RevisionConflict("Meal revision conflict")
+
+        now = utc_now_iso()
+        meal["status"] = "voided"
+        meal["voidedAt"] = now
+        meal["updatedAt"] = now
+        meal["revision"] = int(meal.get("revision", 1)) + 1
+        result = await self._commit(
+            candidate,
+            operation_id=operation_id,
+            event={
+                "entityType": "meal",
+                "entityId": meal_id,
+                "operation": "void",
+                "entityRevision": meal["revision"],
+                "profileId": meal["profileId"],
+                "localDate": meal["consumptionLocalDate"],
+            },
+        )
+        result["meal"] = meal
+        result["dailyHistory"] = candidate["dailyHistoryByProfileDate"].get(
+            f"{meal['profileId']}|{meal['consumptionLocalDate']}"
+        )
         return result
 
     async def async_ingest_legacy_entries(
