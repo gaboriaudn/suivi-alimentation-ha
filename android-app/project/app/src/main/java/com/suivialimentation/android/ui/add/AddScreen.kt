@@ -3,12 +3,11 @@ package com.suivialimentation.android.ui.add
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -19,47 +18,70 @@ import com.suivialimentation.android.ui.components.AppSpacing
 import com.suivialimentation.android.ui.components.MinimumTouchTarget
 
 /**
- * Point d'entrée provisoire de l'onglet Ajouter.
+ * Première étape de l'ajout d'un repas.
  *
- * L'architecture détaillée de cet écran sera redéfinie avec l'utilisateur.
- * En attendant, on conserve uniquement l'action principale validée : choisir
- * le moment avant de composer un repas. Les réglages de compte et les actions
- * de transformation d'un repas existant n'ont pas leur place ici.
+ * Cet écran reste volontairement court : il sert uniquement à choisir le
+ * moment. La composition du repas s'ouvre ensuite sur un écran distinct.
  */
 @Composable
 fun AddScreen(
     modifier: Modifier = Modifier,
     onAddMeal: (String) -> Unit,
 ) {
-    LazyColumn(
-        modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(AppSpacing.lg),
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = AppSpacing.lg, vertical = AppSpacing.md),
         verticalArrangement = Arrangement.spacedBy(AppSpacing.md),
     ) {
-        item {
-            Text("Ajouter", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-            Text(
-                "Choisissez le moment du repas. Vous pourrez ensuite le composer.",
-                style = MaterialTheme.typography.bodyMedium,
-            )
+        Text(
+            "Ajouter un repas",
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Bold,
+        )
+        Text(
+            "Choisissez le moment du repas.",
+            style = MaterialTheme.typography.bodyMedium,
+        )
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(AppSpacing.sm),
+        ) {
+            MealMomentCard("Petit-déjeuner", Modifier.weight(1f)) { onAddMeal("breakfast") }
+            MealMomentCard("Déjeuner", Modifier.weight(1f)) { onAddMeal("lunch") }
         }
-        item { MealMomentCard("Petit-déjeuner") { onAddMeal("breakfast") } }
-        item { MealMomentCard("Déjeuner") { onAddMeal("lunch") } }
-        item { MealMomentCard("Dîner") { onAddMeal("dinner") } }
-        item { MealMomentCard("Collation") { onAddMeal("snack") } }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(AppSpacing.sm),
+        ) {
+            MealMomentCard("Collation", Modifier.weight(1f)) { onAddMeal("snack") }
+            MealMomentCard("Dîner", Modifier.weight(1f)) { onAddMeal("dinner") }
+        }
     }
 }
 
 @Composable
-private fun MealMomentCard(label: String, onClick: () -> Unit) {
+private fun MealMomentCard(
+    label: String,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
+        modifier = modifier
             .heightIn(min = MinimumTouchTarget)
             .clickable(onClick = onClick),
     ) {
-        Column(Modifier.padding(AppSpacing.md)) {
-            Text(label, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(AppSpacing.md),
+        ) {
+            Text(
+                label,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+            )
         }
     }
 }
