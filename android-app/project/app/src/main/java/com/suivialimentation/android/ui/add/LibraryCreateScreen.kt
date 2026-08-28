@@ -9,17 +9,19 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -34,18 +36,28 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import com.suivialimentation.android.data.features.FeatureRepository
 import com.suivialimentation.android.data.features.ReusableItemInput
 import com.suivialimentation.android.data.model.CiqualFoodCandidate
 import com.suivialimentation.android.data.model.NutrientSnapshot
+import com.suivialimentation.android.data.model.PortionOption
 import com.suivialimentation.android.data.repository.NutritionRepository
 import com.suivialimentation.android.ui.components.AppSpacing
 import com.suivialimentation.android.ui.components.MinimumTouchTarget
+import java.util.UUID
 import kotlinx.coroutines.launch
 
 enum class LibraryCreationKind { FOOD, RECIPE, MEAL_TEMPLATE }
 
-private data class DraftReusableItem(val foodRefId: String, val label: String, val grams: String)
+private data class DraftReusableItem(
+    val localId: String = UUID.randomUUID().toString(),
+    val foodRefId: String,
+    val label: String,
+    val quantity: String,
+    val servingDefinitions: List<PortionOption> = emptyList(),
+    val selectedPortionId: String? = null,
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -136,21 +148,90 @@ private fun ReusableForm(
         items(results, key = { it.sourceExternalId }) { candidate ->
             Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(AppSpacing.sm)) {
                 Text(candidate.label, fontWeight = FontWeight.SemiBold)
-                TextButton(onClick = { scope.launch { onBusy(true); runCatching { nutritionRepository.importCiqualFood(profileId, candidate.sourceExternalId) }.onSuccess { imported -> selected.add(DraftReusableItem(imported.food.id, candidate.label, "100")); results = emptyList(); query = "" }.onFailure { onError(it.message) }; onBusy(false) } }) { Text("Ajouter") }
+                candidate.servingDefinitions.firstOrNull()?.let { portion ->
+                    val equivalent = portion.gramsEquivalent?.let { " · ${formatQuantity(it)} g" }.orEmpty()
+                    Text("Portion disponible : ${portion.label}$equivalent", style = MaterialTheme.typography.bodySmall)
+                }
+                TextButton(onClick = {
+                    scope.launch {
+                        onBusy(true)
+                        runCatching { nutritionRepository.importCiqualFood(profileId, candidate.sourceExternalId) }
+                            .onSuccess { imported ->
+                                val portions = imported.food.servingDefinitions
+                                val defaultPortion = portions.firstOrNull()
+                                selected.add(
+                                    DraftReusableItem(
+                                        foodRefId = imported.food.id,
+                                        label = candidate.label,
+                                        quantity = if (defaultPortion == null) "100" else "1",
+                                        servingDefinitions = portions,
+                                        selectedPortionId = defaultPortion?.id,
+                                    )
+                                )
+                                results = emptyList(); query = ""
+                            }
+                            .onFailure { onError(it.message) }
+                        onBusy(false)
+                    }
+                }) { Text("Ajouter") }
             } }
         }
         if (selected.isNotEmpty()) item { Text("Composition", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) }
-        items(selected, key = { it.foodRefId }) { item ->
-            val index = selected.indexOf(item)
-            Card(Modifier.fillMaxWidth()) { Row(Modifier.fillMaxWidth().padding(AppSpacing.sm), horizontalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
-                Text(item.label, Modifier.weight(1f))
-                OutlinedTextField(item.grams, { value -> if (index >= 0) selected[index] = item.copy(grams = value) }, Modifier.weight(.45f), label = { Text("g") }, singleLine = true)
-                TextButton(onClick = { selected.remove(item) }) { Text("Retirer") }
-            } }
+        items(selected, key = { it.localId }) { item ->
+            val index = selected.indexOfFirst { it.localId == item.localId }
+            val selectedPortion = item.servingDefinitions.firstOrNull { it.id == item.selectedPortionId }
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.fillMaxWidth().padding(AppSpacing.sm), verticalArrangement = Arrangement.spacedBy(AppSpacing.xs)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
+                        Text(item.label, Modifier.weight(1f), fontWeight = FontWeight.Medium)
+                        TextButton(onClick = { selected.removeAll { it.localId == item.localId } }) { Text("Retirer") }
+                    }
+                    if (item.servingDefinitions.isNotEmpty()) {
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
+                            item {
+                                FilterChip(
+                                    selected = item.selectedPortionId == null,
+                                    onClick = { if (index >= 0) selected[index] = item.copy(selectedPortionId = null, quantity = "100") },
+                                    label = { Text("Grammes") },
+                                )
+                            }
+                            items(item.servingDefinitions, key = { it.id }) { portion ->
+                                FilterChip(
+                                    selected = item.selectedPortionId == portion.id,
+                                    onClick = { if (index >= 0) selected[index] = item.copy(selectedPortionId = portion.id, quantity = "1") },
+                                    label = { Text(portion.label) },
+                                )
+                            }
+                        }
+                    }
+                    OutlinedTextField(
+                        item.quantity,
+                        { value -> if (index >= 0) selected[index] = item.copy(quantity = value) },
+                        Modifier.fillMaxWidth(),
+                        label = { Text(if (selectedPortion == null) "Quantité" else "Nombre de portions") },
+                        suffix = { Text(selectedPortion?.unitLabel ?: "g") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    )
+                    selectedPortion?.gramsEquivalent?.let { grams ->
+                        Text("${selectedPortion.label} = ${formatQuantity(grams)} g", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
         }
         error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
         item {
-            val validItems = selected.mapNotNull { it.grams.replace(',', '.').toDoubleOrNull()?.takeIf { g -> g > 0 }?.let { g -> ReusableItemInput(it.foodRefId, it.label, g) } }
+            val validItems = selected.mapNotNull { item ->
+                val value = item.quantity.replace(',', '.').toDoubleOrNull()?.takeIf { it > 0 } ?: return@mapNotNull null
+                val portion = item.servingDefinitions.firstOrNull { it.id == item.selectedPortionId }
+                ReusableItemInput(
+                    foodRefId = item.foodRefId,
+                    label = item.label,
+                    quantityValue = value,
+                    quantityUnit = portion?.unitLabel ?: "g",
+                    portionId = portion?.id,
+                )
+            }
             Button(onClick = {
                 scope.launch {
                     onBusy(true); onError(null)
@@ -166,3 +247,5 @@ private fun ReusableForm(
         }
     }
 }
+
+private fun formatQuantity(value: Double): String = if (value % 1.0 == 0.0) value.toInt().toString() else value.toString().replace('.', ',')
