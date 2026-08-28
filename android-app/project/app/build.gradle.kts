@@ -24,10 +24,12 @@ val appVersionCode = providers.gradleProperty("APP_VERSION_CODE")
     .toInt()
 val gitSha = providers.gradleProperty("APP_GIT_SHA").orNull
     ?.take(7)
+    ?: System.getenv("APP_GIT_SHA")?.take(7)
     ?: System.getenv("GITHUB_SHA")?.take(7)
     ?: gitValue("rev-parse", "--short=7", "HEAD")
     ?: "inconnu"
 val gitBranch = providers.gradleProperty("APP_GIT_BRANCH").orNull
+    ?: System.getenv("APP_GIT_BRANCH")
     ?: System.getenv("GITHUB_REF_NAME")
     ?: gitValue("rev-parse", "--abbrev-ref", "HEAD")
     ?: "inconnue"
