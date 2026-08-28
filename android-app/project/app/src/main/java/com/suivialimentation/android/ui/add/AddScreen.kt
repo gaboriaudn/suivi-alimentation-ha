@@ -21,9 +21,9 @@ import com.suivialimentation.android.ui.components.MinimumTouchTarget
 fun AddScreen(
     modifier: Modifier = Modifier,
     onAddMeal: (String) -> Unit,
-    onCreateFood: () -> Unit,
-    onCreateRecipe: () -> Unit,
-    onCreateMealTemplate: () -> Unit,
+    onCreateFood: () -> Unit = {},
+    onCreateRecipe: () -> Unit = {},
+    onCreateMealTemplate: () -> Unit = {},
 ) {
     Column(
         modifier = modifier.fillMaxSize().padding(horizontal = AppSpacing.lg, vertical = AppSpacing.md),
