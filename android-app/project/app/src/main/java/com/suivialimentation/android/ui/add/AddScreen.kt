@@ -17,71 +17,44 @@ import androidx.compose.ui.text.font.FontWeight
 import com.suivialimentation.android.ui.components.AppSpacing
 import com.suivialimentation.android.ui.components.MinimumTouchTarget
 
-/**
- * Première étape de l'ajout d'un repas.
- *
- * Cet écran reste volontairement court : il sert uniquement à choisir le
- * moment. La composition du repas s'ouvre ensuite sur un écran distinct.
- */
 @Composable
 fun AddScreen(
     modifier: Modifier = Modifier,
     onAddMeal: (String) -> Unit,
+    onCreateFood: () -> Unit,
+    onCreateRecipe: () -> Unit,
+    onCreateMealTemplate: () -> Unit,
 ) {
     Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(horizontal = AppSpacing.lg, vertical = AppSpacing.md),
+        modifier = modifier.fillMaxSize().padding(horizontal = AppSpacing.lg, vertical = AppSpacing.md),
         verticalArrangement = Arrangement.spacedBy(AppSpacing.md),
     ) {
-        Text(
-            "Ajouter un repas",
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold,
-        )
-        Text(
-            "Choisissez le moment du repas.",
-            style = MaterialTheme.typography.bodyMedium,
-        )
+        Text("Ajouter un repas", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        Text("Choisissez le moment du repas.", style = MaterialTheme.typography.bodyMedium)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
+            ActionCard("Petit-déjeuner", Modifier.weight(1f)) { onAddMeal("breakfast") }
+            ActionCard("Déjeuner", Modifier.weight(1f)) { onAddMeal("lunch") }
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
+            ActionCard("Dîner", Modifier.weight(1f)) { onAddMeal("dinner") }
+            ActionCard("Collation", Modifier.weight(1f)) { onAddMeal("snack") }
+        }
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(AppSpacing.sm),
-        ) {
-            MealMomentCard("Petit-déjeuner", Modifier.weight(1f)) { onAddMeal("breakfast") }
-            MealMomentCard("Déjeuner", Modifier.weight(1f)) { onAddMeal("lunch") }
+        Text("Créer", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = AppSpacing.md))
+        Text("Enrichissez votre bibliothèque pour les prochaines saisies.", style = MaterialTheme.typography.bodyMedium)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
+            ActionCard("Aliment", Modifier.weight(1f), onCreateFood)
+            ActionCard("Recette", Modifier.weight(1f), onCreateRecipe)
         }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(AppSpacing.sm),
-        ) {
-            MealMomentCard("Collation", Modifier.weight(1f)) { onAddMeal("snack") }
-            MealMomentCard("Dîner", Modifier.weight(1f)) { onAddMeal("dinner") }
-        }
+        ActionCard("Repas type", Modifier.fillMaxWidth(), onCreateMealTemplate)
     }
 }
 
 @Composable
-private fun MealMomentCard(
-    label: String,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit,
-) {
-    Card(
-        modifier = modifier
-            .heightIn(min = MinimumTouchTarget)
-            .clickable(onClick = onClick),
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(AppSpacing.md),
-        ) {
-            Text(
-                label,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-            )
+private fun ActionCard(label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Card(modifier = modifier.heightIn(min = MinimumTouchTarget).clickable(onClick = onClick)) {
+        Column(Modifier.fillMaxWidth().padding(AppSpacing.md)) {
+            Text(label, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
         }
     }
 }
