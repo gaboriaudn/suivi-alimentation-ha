@@ -19,6 +19,9 @@ permissions:
 jobs:
   build-apk:
     runs-on: ubuntu-latest
+    env:
+      APP_GIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      APP_GIT_BRANCH: ${{ github.head_ref || github.ref_name }}
 
     steps:
       - name: Checkout repository
@@ -88,6 +91,8 @@ jobs:
           gradle testDebugUnitTest
           -PHA_OAUTH_CLIENT_ID=https://gaboriaudn.github.io/suivi-alimentation-ha/
           -PAPP_VERSION_CODE=${{ github.run_number }}
+          -PAPP_GIT_SHA=$APP_GIT_SHA
+          -PAPP_GIT_BRANCH=$APP_GIT_BRANCH
 
       - name: Prepare permanent signing key
         if: github.event_name != 'pull_request'
@@ -108,6 +113,8 @@ jobs:
           gradle assembleDebug
           -PHA_OAUTH_CLIENT_ID=https://gaboriaudn.github.io/suivi-alimentation-ha/
           -PAPP_VERSION_CODE=${{ github.run_number }}
+          -PAPP_GIT_SHA=$APP_GIT_SHA
+          -PAPP_GIT_BRANCH=$APP_GIT_BRANCH
 
       - name: Build permanently signed APK
         if: github.event_name != 'pull_request'
@@ -120,6 +127,8 @@ jobs:
           gradle assembleDebug
           -PHA_OAUTH_CLIENT_ID=https://gaboriaudn.github.io/suivi-alimentation-ha/
           -PAPP_VERSION_CODE=${{ github.run_number }}
+          -PAPP_GIT_SHA=$APP_GIT_SHA
+          -PAPP_GIT_BRANCH=$APP_GIT_BRANCH
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v7

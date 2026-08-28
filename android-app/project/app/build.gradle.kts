@@ -6,6 +6,15 @@ plugins {
 
 fun quoted(value: String): String = "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
+fun gitValue(vararg args: String): String? = runCatching {
+    val process = ProcessBuilder("git", *args)
+        .directory(rootProject.projectDir)
+        .redirectErrorStream(true)
+        .start()
+    val output = process.inputStream.bufferedReader().readText().trim()
+    if (process.waitFor() == 0 && output.isNotBlank()) output else null
+}.getOrNull()
+
 val oauthClientId = providers.gradleProperty("HA_OAUTH_CLIENT_ID")
     .orElse("https://example.invalid/suivi-alimentation-android")
 val oauthRedirectUri = "suivialimentation://auth-callback"
@@ -13,6 +22,17 @@ val appVersionCode = providers.gradleProperty("APP_VERSION_CODE")
     .orElse("1")
     .get()
     .toInt()
+val gitSha = providers.gradleProperty("APP_GIT_SHA").orNull
+    ?.take(7)
+    ?: System.getenv("APP_GIT_SHA")?.take(7)
+    ?: System.getenv("GITHUB_SHA")?.take(7)
+    ?: gitValue("rev-parse", "--short=7", "HEAD")
+    ?: "inconnu"
+val gitBranch = providers.gradleProperty("APP_GIT_BRANCH").orNull
+    ?: System.getenv("APP_GIT_BRANCH")
+    ?: System.getenv("GITHUB_REF_NAME")
+    ?: gitValue("rev-parse", "--abbrev-ref", "HEAD")
+    ?: "inconnue"
 
 val signingStorePath = providers.environmentVariable("ANDROID_SIGNING_STORE_FILE").orNull
 val signingStorePassword = providers.environmentVariable("ANDROID_SIGNING_STORE_PASSWORD").orNull
@@ -38,6 +58,8 @@ android {
 
         buildConfigField("String", "HA_OAUTH_CLIENT_ID", quoted(oauthClientId.get()))
         buildConfigField("String", "HA_OAUTH_REDIRECT_URI", quoted(oauthRedirectUri))
+        buildConfigField("String", "GIT_SHA", quoted(gitSha))
+        buildConfigField("String", "GIT_BRANCH", quoted(gitBranch))
     }
 
     buildFeatures {

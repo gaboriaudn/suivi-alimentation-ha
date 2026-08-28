@@ -87,7 +87,12 @@ fun ProfileScreen(modifier: Modifier = Modifier, state: ProfileUiState, onSave: 
         state.error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }; state.message?.let { item { Text(it, color = MaterialTheme.colorScheme.primary) } }
         item { Button({ onSave(form) }, Modifier.fillMaxWidth().heightIn(min = MinimumTouchTarget), enabled = !state.saving) { Text(if (state.saving) "Enregistrement…" else "Enregistrer le profil") } }
         item { SectionCard("Compte et connexion") { OutlinedButton(onClick = onLogout, modifier = Modifier.fillMaxWidth().heightIn(min = MinimumTouchTarget)) { Text("Se déconnecter de Home Assistant") } } }
-        item { Text("Version ${BuildConfig.VERSION_NAME} — build ${BuildConfig.VERSION_CODE}", modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.xs)) {
+                Text("Version ${BuildConfig.VERSION_NAME} — build ${BuildConfig.VERSION_CODE}", modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Code : ${BuildConfig.GIT_SHA} — ${BuildConfig.GIT_BRANCH}", modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
     }
 }
 
