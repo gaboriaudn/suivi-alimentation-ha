@@ -7,6 +7,7 @@ import com.suivialimentation.android.auth.SecureTokenStore
 import com.suivialimentation.android.data.features.FeatureRepository
 import com.suivialimentation.android.data.ha.HomeAssistantApi
 import com.suivialimentation.android.data.ha.HomeAssistantWebSocketClient
+import com.suivialimentation.android.data.library.LibraryRepository
 import com.suivialimentation.android.data.photo.PhotoAnalysisService
 import com.suivialimentation.android.data.repository.DefaultNutritionRepository
 import com.suivialimentation.android.data.repository.NutritionRepository
@@ -39,6 +40,7 @@ class AppContainer(context: Context) {
 
     val photoAnalysisService = PhotoAnalysisService(appContext, httpClient, authManager)
     val featureRepository = FeatureRepository(api)
+    val libraryRepository = LibraryRepository(api)
 
     val repository: NutritionRepository = DefaultNutritionRepository(
         ws = wsClient,

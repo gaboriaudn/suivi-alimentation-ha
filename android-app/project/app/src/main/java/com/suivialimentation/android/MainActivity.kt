@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -54,6 +55,7 @@ import com.suivialimentation.android.ui.add.LibraryCreationKind
 import com.suivialimentation.android.ui.features.FeatureHubScreen
 import com.suivialimentation.android.ui.features.FeatureHubSection
 import com.suivialimentation.android.ui.features.FeatureHubViewModel
+import com.suivialimentation.android.ui.library.LibraryScreen
 import com.suivialimentation.android.ui.mealentry.MealEntryScreen
 import com.suivialimentation.android.ui.mealentry.MealEntryViewModel
 import com.suivialimentation.android.ui.mealentry.MealTypeSelectionScreen
@@ -78,7 +80,7 @@ class MainActivity : ComponentActivity() {
 }
 
 private data class MealEntryRoute(val token: String, val profileId: String, val localDate: String, val draft: MealWithItems? = null, val existingMeals: List<MealWithItems> = emptyList(), val initialMealType: String? = null)
-private enum class MainDestination(val label: String) { TODAY("Aujourd’hui"), ADD("Ajouter"), HISTORY("Historique"), PROFILE("Profil") }
+private enum class MainDestination(val label: String) { TODAY("Aujourd’hui"), ADD("Ajouter"), LIBRARY("Bibliothèque"), HISTORY("Historique"), PROFILE("Profil") }
 
 @Composable
 private fun AppRoot(appViewModel: AppViewModel, container: AppContainer) {
@@ -132,6 +134,17 @@ private fun SignedInRoot(sessionGeneration: Long, container: AppContainer, onLog
         return
     }
 
+    if (route == null && content != null && destination == MainDestination.LIBRARY) {
+        Scaffold(bottomBar = { MainNavigationBar(destination, { destination = MainDestination.ADD }) { destination = it } }) { p ->
+            LibraryScreen(
+                modifier = Modifier.padding(p),
+                profileId = content.profile.id,
+                repository = container.libraryRepository,
+            )
+        }
+        return
+    }
+
     if (route == null && content != null && destination == MainDestination.HISTORY) {
         val featureVm: FeatureHubViewModel = viewModel(key = "features-${content.profile.id}-${content.localDate}", factory = FeatureHubViewModel.Factory(container.featureRepository, container.repository, content.profile.id, content.localDate)); val featureState by featureVm.state.collectAsStateWithLifecycle(); val photoVm: PhotoMealViewModel = viewModel(key = "photo-${content.profile.id}-${content.localDate}", factory = PhotoMealViewModel.Factory(container.photoAnalysisService)); val photoState by photoVm.state.collectAsStateWithLifecycle()
         Scaffold(bottomBar = { MainNavigationBar(destination, { destination = MainDestination.ADD }) { destination = it } }) { p -> FeatureHubScreen(Modifier.padding(p), FeatureHubSection.HISTORY, featureState, photoState, content.meals, photoVm::analyzeFood, photoVm::analyzeMeal, photoVm::clear, featureVm::createFromPhoto, featureVm::saveRecipe, featureVm::createFromRecipe, {}, { destination = MainDestination.TODAY; photoVm.clear(); todayViewModel.retry() }) }
@@ -159,6 +172,6 @@ private fun SignedInRoot(sessionGeneration: Long, container: AppContainer, onLog
 }
 
 private fun mealTypeLabel(value: String): String = when (value) { "breakfast" -> "Petit-déjeuner"; "lunch" -> "Déjeuner"; "dinner" -> "Dîner"; "snack" -> "Collation"; else -> "Repas" }
-@Composable private fun MainNavigationBar(current: MainDestination, onAdd: () -> Unit, onNavigate: (MainDestination) -> Unit) { NavigationBar { MainNavigationItem(MainDestination.TODAY, current == MainDestination.TODAY, Modifier.weight(1f)) { onNavigate(MainDestination.TODAY) }; MainNavigationItem(MainDestination.ADD, current == MainDestination.ADD, Modifier.weight(1f), onAdd); MainNavigationItem(MainDestination.HISTORY, current == MainDestination.HISTORY, Modifier.weight(1f)) { onNavigate(MainDestination.HISTORY) }; MainNavigationItem(MainDestination.PROFILE, current == MainDestination.PROFILE, Modifier.weight(1f)) { onNavigate(MainDestination.PROFILE) } } }
-@Composable private fun MainNavigationItem(destination: MainDestination, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) { val icon = when (destination) { MainDestination.TODAY -> Icons.Filled.Home; MainDestination.ADD -> Icons.Filled.AddCircle; MainDestination.HISTORY -> Icons.Filled.CalendarMonth; MainDestination.PROFILE -> Icons.Filled.Person }; val color = if (selected) androidx.compose.material3.MaterialTheme.colorScheme.primary else androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant; Column(modifier.clickable(onClick = onClick).padding(vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) { Icon(icon, destination.label, tint = color); Text(destination.label, color = color, style = androidx.compose.material3.MaterialTheme.typography.labelMedium) } }
+@Composable private fun MainNavigationBar(current: MainDestination, onAdd: () -> Unit, onNavigate: (MainDestination) -> Unit) { NavigationBar { MainNavigationItem(MainDestination.TODAY, current == MainDestination.TODAY, Modifier.weight(1f)) { onNavigate(MainDestination.TODAY) }; MainNavigationItem(MainDestination.ADD, current == MainDestination.ADD, Modifier.weight(1f), onAdd); MainNavigationItem(MainDestination.LIBRARY, current == MainDestination.LIBRARY, Modifier.weight(1f)) { onNavigate(MainDestination.LIBRARY) }; MainNavigationItem(MainDestination.HISTORY, current == MainDestination.HISTORY, Modifier.weight(1f)) { onNavigate(MainDestination.HISTORY) }; MainNavigationItem(MainDestination.PROFILE, current == MainDestination.PROFILE, Modifier.weight(1f)) { onNavigate(MainDestination.PROFILE) } } }
+@Composable private fun MainNavigationItem(destination: MainDestination, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) { val icon = when (destination) { MainDestination.TODAY -> Icons.Filled.Home; MainDestination.ADD -> Icons.Filled.AddCircle; MainDestination.LIBRARY -> Icons.Filled.List; MainDestination.HISTORY -> Icons.Filled.CalendarMonth; MainDestination.PROFILE -> Icons.Filled.Person }; val color = if (selected) androidx.compose.material3.MaterialTheme.colorScheme.primary else androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant; Column(modifier.clickable(onClick = onClick).padding(vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) { Icon(icon, destination.label, tint = color); Text(destination.label, color = color, style = androidx.compose.material3.MaterialTheme.typography.labelMedium, maxLines = 1) } }
 @Composable private fun FullScreenLoading(label: String) { Column(Modifier.fillMaxSize(), Arrangement.Center, Alignment.CenterHorizontally) { CircularProgressIndicator(); Text(label) } }
