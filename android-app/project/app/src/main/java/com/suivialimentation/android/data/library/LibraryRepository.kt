@@ -9,6 +9,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -73,7 +74,7 @@ class LibraryRepository(private val api: HomeAssistantApi) {
             LibraryMealTemplate(
                 id = template["id"]?.jsonPrimitive?.content ?: return@mapNotNull null,
                 name = template["name"]?.jsonPrimitive?.content ?: "Repas type",
-                defaultMealType = template["defaultMealType"]?.jsonPrimitive?.content,
+                defaultMealType = template["defaultMealType"]?.jsonPrimitive?.contentOrNull,
                 components = parseComponents(obj["items"] as? JsonArray),
             )
         }
@@ -160,13 +161,13 @@ class LibraryRepository(private val api: HomeAssistantApi) {
 
     private fun parseComponents(array: JsonArray?): List<LibraryComponent> = array.orEmpty().mapNotNull { element ->
         val obj = element.jsonObject
-        val foodRefId = obj["foodRefId"]?.jsonPrimitive?.content ?: return@mapNotNull null
+        val foodRefId = obj["foodRefId"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
         LibraryComponent(
             foodRefId = foodRefId,
-            label = obj["labelSnapshot"]?.jsonPrimitive?.content ?: "Aliment",
+            label = obj["labelSnapshot"]?.jsonPrimitive?.contentOrNull ?: "Aliment",
             quantityValue = obj["quantityValue"]?.jsonPrimitive?.content?.toDoubleOrNull() ?: 0.0,
-            quantityUnit = obj["quantityUnit"]?.jsonPrimitive?.content ?: "g",
-            portionId = obj["portionId"]?.jsonPrimitive?.content,
+            quantityUnit = obj["quantityUnit"]?.jsonPrimitive?.contentOrNull ?: "g",
+            portionId = obj["portionId"]?.jsonPrimitive?.contentOrNull,
         )
     }
 
