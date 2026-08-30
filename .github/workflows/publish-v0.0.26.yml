@@ -1,0 +1,27 @@
+name: Publish Suivi Alimentation v0.0.26
+
+on:
+  push:
+    paths:
+      - '.release-v0.0.26-trigger'
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view v0.0.26 --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "Release v0.0.26 already exists"
+            exit 0
+          fi
+          gh release create v0.0.26 \
+            --repo "${{ github.repository }}" \
+            --target "${{ github.sha }}" \
+            --title "Suivi Alimentation v0.0.26" \
+            --notes "Version de référence pour l'application Android Suivi Alimentation.\n\n- API et stockage V2\n- Compatibilité avec l'application Android\n- Bibliothèque Android complète\n- Commandes V2 de gestion de bibliothèque\n- Passerelle de compatibilité avec l'ancien stockage Home Assistant\n\nCette release remplace la v0.0.22 obsolète proposée auparavant par HACS."
